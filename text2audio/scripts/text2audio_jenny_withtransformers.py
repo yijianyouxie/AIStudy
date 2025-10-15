@@ -1,74 +1,60 @@
-# 缺点，需要连接huggingface
 import os
-# 彻底禁用所有编译优化
-os.environ["TORCHINDUCTOR_DISABLE"] = "1"
-os.environ["UNSLOTH_DISABLE_COMPILATION"] = "1"
-os.environ["TORCHDYNAMO_DISABLE"] = "1"
-os.environ["UNSLOTH_OFFLINE"] = "1"  # 强制离线模式
-os.environ["TRITON_CACHE_DIR"] = ""  # 清空triton缓存
+# 彻底禁用所有网络连接
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["DIFFUSERS_OFFLINE"] = "1"
 
 import torch
-# 彻底禁用所有动态编译
-torch._dynamo.config.suppress_errors = True
-
-# 在导入unsloth之前设置
 import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore")
 
-from unsloth import FastLanguageModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from snac import SNAC
 import scipy.io.wavfile
 import numpy as np
 
-print("开始加载模型...")
+print("=== 完全离线TTS系统启动 ===")
 
-# 加载模型 - 使用更保守的设置
-model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name=r"G:\AIModels\modelscope_cache\models\Vyvo\VyvoTTS-LFM2-Jenny",
-    max_seq_length=8192,
-    dtype=None,
-    load_in_4bit=False,
-    # 添加更多保守设置
-    # trust_remote_code=True,
-    # use_safetensors=True,
-    local_files_only=True  # 强制只使用本地文件
-)
-
-print("TTS模型加载完成")
-
-# 彻底禁用模型内部的所有优化
-if hasattr(model, 'config'):
-    model.config.use_cache = True
-    model.config.torch_dtype = torch.float32
-
-# 禁用任何可能的梯度检查点
-if hasattr(model, 'gradient_checkpointing_disable'):
-    model.gradient_checkpointing_disable()
-    
-model.eval()  # 设置为评估模式
+print("开始加载TTS模型...")
+try:
+    # 使用标准transformers加载模型，不使用Unsloth
+    model = AutoModelForCausalLM.from_pretrained(
+        r"G:\AIModels\modelscope_cache\models\Vyvo\VyvoTTS-LFM2-Jenny",
+        torch_dtype=torch.float16,
+        device_map="auto",
+        trust_remote_code=True,
+        local_files_only=True
+    )
+    tokenizer = AutoTokenizer.from_pretrained(
+        r"G:\AIModels\modelscope_cache\models\Vyvo\VyvoTTS-LFM2-Jenny",
+        trust_remote_code=True,
+        local_files_only=True
+    )
+    print("✅ TTS模型加载完成")
+except Exception as e:
+    print(f"❌ TTS模型加载失败: {e}")
+    exit(1)
 
 print("加载SNAC声码器...")
-# 尝试从本地加载SNAC模型
 try:
-    # 首先尝试默认路径
-    snac_model = SNAC.from_pretrained(r"G:\AIModels\hf_cache\snac_24khz", local_files_only=True)
-except:
-    try:
-        # 如果失败，尝试常见缓存路径
-        snac_path = os.path.expanduser("~/.cache/huggingface/hub/models--hubertsiuzdak--snac_24khz")
-        snac_model = SNAC.from_pretrained(snac_path, local_files_only=True)
-    except:
-        print("❌ 无法找到SNAC模型，请先下载模型")
-        print("运行: huggingface-cli download hubertsiuzdak/snac_24khz --local-dir ./snac_24khz")
-        exit(1)
+    snac_model = SNAC.from_pretrained(
+        r"G:\AIModels\hf_cache\snac_24khz", 
+        local_files_only=True
+    )
+    snac_model.to("cpu")
+    snac_model.eval()
+    print("✅ SNAC声码器加载完成")
+except Exception as e:
+    print(f"❌ SNAC模型加载失败: {e}")
+    exit(1)
 
-print("SNAC声码器加载完成")
+# 设置模型为评估模式
+model.eval()
 
 print("所有模型加载完成，开始处理文本...")
 
+# 根据您的模型配置设置token
 tokeniser_length = 64400
-
-# 定义token
 start_of_text = 1
 end_of_text = 7
 start_of_speech = tokeniser_length + 1
@@ -79,13 +65,10 @@ pad_token = tokeniser_length + 7
 audio_tokens_start = tokeniser_length + 10
 
 # 输入文本
-# prompts = ["Hey there my name is Elise, and I'm a speech generation model that can sound like a person."]
-prompts = ["Hi, My name is haibin, and I'm a speech generation model that can sound like a person."]
+prompts = ["Hi, My name is haibin2, and I'm a speech generation model that can sound like a person."]
 chosen_voice = None
 
-# 准备推理 - 不使用FastLanguageModel的优化
-# FastLanguageModel.for_inference(model)  # 注释掉这一行，使用标准方式
-
+# 准备输入
 prompts_ = [(f"{chosen_voice}: " + p) if chosen_voice else p for p in prompts]
 
 all_input_ids = []
@@ -111,20 +94,17 @@ for m in all_modified_input_ids:
     all_padded_tensors.append(padded_tensor)
     all_attention_masks.append(attention_mask)
 
-input_ids = torch.cat(all_padded_tensors, dim=0).to("cuda")
-attention_mask = torch.cat(all_attention_masks, dim=0).to("cuda")
+input_ids = torch.cat(all_padded_tensors, dim=0).to(model.device)
+attention_mask = torch.cat(all_attention_masks, dim=0).to(model.device)
 
 print("开始生成音频token...")
 
-# 使用最保守的生成方式，不使用任何autocast
+# 生成音频token
 with torch.no_grad():
-    # 完全禁用任何形式的编译
-    torch._dynamo.disable()
-    
     generated_ids = model.generate(
         input_ids=input_ids,
         attention_mask=attention_mask,
-        max_new_tokens=800,  # 减少token数量以降低内存使用
+        max_new_tokens=800,
         do_sample=True,
         temperature=0.6,
         top_p=0.95,
@@ -213,8 +193,10 @@ for i, (prompt, samples) in enumerate(zip(prompts, my_samples)):
 print("\n🎉 所有音频生成完成！")
 print("您可以在当前目录找到生成的WAV文件")
 
-# 彻底清理内存
+# 清理内存
 del my_samples, model, snac_model, tokenizer
-torch.cuda.empty_cache()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
 
 print("内存清理完成")
+print("=== 程序结束 ===")
