@@ -1,0 +1,4 @@
+modelscope
+numpy
+# 如果使用 GPU 和 PyTorch 则需要安装 torch / torchvision 对应版本
+# torch
