@@ -74,15 +74,15 @@ npm install -g pnpm
 # 克隆仓库
 git clone git@github.com:cosin2077/easyVoice.git
 cd easyVoice
-# 安装依赖
+# 安装依赖，这一步，如果是复制了新工程，需要在新工程里再运行一遍
 pnpm i -r
 
 # 开发模式
-pnpm dev:root
+pnpm dev
 
 # 生产模式
-pnpm build:root
-pnpm start:root
+pnpm build
+pnpm start
 ```
 
 ### 3. 生成的音频、字幕保存位置
