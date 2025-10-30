@@ -4,9 +4,9 @@ import { WebSocket } from 'ws'
 import { parse, resolve } from 'path'
 import { access, writeFile } from 'node:fs/promises'
 import { HttpsProxyAgent } from 'https-proxy-agent'
-import { generateSecMsGecToken, TRUSTED_CLIENT_TOKEN, CHROMIUM_FULL_VERSION } from './drm'
+import { generateSecMsGecToken, TRUSTED_CLIENT_TOKEN, CHROMIUM_FULL_VERSION } from './drm.js'
 import { Readable } from 'node:stream'
-import { ensureDir, escapeSSML } from '../../utils'
+import { ensureDir, escapeSSML } from '../../utils/index.js'
 
 interface SubLine {
   part: string

@@ -2,9 +2,9 @@ import path, { resolve } from 'path'
 import { Response } from 'express'
 import fs, { readdir } from 'fs/promises'
 import ffmpeg from 'fluent-ffmpeg'
-import { AUDIO_DIR, STATIC_DOMAIN, EDGE_API_LIMIT } from '../config'
-import { logger } from '../utils/logger'
-import { getPrompt } from '../llm/prompt/generateSegment'
+import { AUDIO_DIR, STATIC_DOMAIN, EDGE_API_LIMIT } from '../config/index.js'
+import { logger } from '../utils/logger.js'
+import { getPrompt } from '../llm/prompt/generateSegment.js'
 import {
   asyncSleep,
   ensureDir,
@@ -12,15 +12,15 @@ import {
   getLangConfig,
   readJson,
   streamToResponse,
-} from '../utils'
-import { openai } from '../utils/openai'
-import { splitText } from './text.service'
-import { generateSingleVoiceStream, generateSrt } from './edge-tts.service'
-import { EdgeSchema } from '../schema/generate'
-import { MapLimitController } from '../controllers/concurrency.controller'
-import audioCacheInstance from './audioCache.service'
-import { mergeSubtitleFiles, SubtitleFile, SubtitleFiles } from '../utils/subtitle'
-import taskManager, { Task } from '../utils/taskManager'
+} from '../utils/index.js'
+import { openai } from '../utils/openai.js'
+import { splitText } from './text.service.js'
+import { generateSingleVoiceStream, generateSrt } from './edge-tts.service.js'
+import { EdgeSchema } from '../schema/generate.js'
+import { MapLimitController } from '../controllers/concurrency.controller.js'
+import audioCacheInstance from './audioCache.service.js'
+import { mergeSubtitleFiles, SubtitleFile, SubtitleFiles } from '../utils/subtitle.js'
+import taskManager, { Task } from '../utils/taskManager.js'
 import { Readable, PassThrough } from 'stream'
 import { createWriteStream } from 'fs'
 

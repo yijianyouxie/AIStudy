@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from 'express'
-import { generateTTS } from '../services/tts.service'
-import { logger } from '../utils/logger'
+import { generateTTS } from '../services/tts.service.js'
+import { logger } from '../utils/logger.js'
 import path from 'path'
 import fs from 'fs/promises'
-import { ALLOWED_EXTENSIONS, AUDIO_DIR } from '../config'
-import { EdgeSchema } from '../schema/generate'
-import taskManager from '../utils/taskManager'
+import { ALLOWED_EXTENSIONS, AUDIO_DIR } from '../config/index.js'
+import { EdgeSchema } from '../schema/generate.js'
+import taskManager from '../utils/taskManager.js'
+
 function formatBody({ text, pitch, voice, volume, rate, useLLM }: EdgeSchema) {
   const positivePercent = (value: string | undefined) => {
     if (value === '0%' || value === '0' || value === undefined) return '+0%'

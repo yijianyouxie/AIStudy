@@ -6,11 +6,11 @@ import {
   createTask,
   getTask,
   getTaskStats,
-} from '../controllers/tts.controller'
-import { pickSchema } from '../controllers/pick.controller'
-import { ttsPluginManager } from '../tts/pluginManager'
-import { createTaskStream, generateJson } from '../controllers/stream.controller'
-import { validateJson } from '../schema/generate'
+} from '../controllers/tts.controller.js'
+import { pickSchema } from '../controllers/pick.controller.js'
+import { ttsPluginManager } from '../tts/pluginManager.js'
+import { createTaskStream, generateJson } from '../controllers/stream.controller.js'
+import { validateJson } from '../schema/generate.js'
 
 const router = Router()
 

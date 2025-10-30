@@ -1,8 +1,8 @@
-import { config, DIRECT_GEN_LIMIT, LIMIT_TEXT_LENGTH, LIMIT_TEXT_LENGTH_ERROR_MESSAGE } from './../config/index'
+import { config, DIRECT_GEN_LIMIT, LIMIT_TEXT_LENGTH, LIMIT_TEXT_LENGTH_ERROR_MESSAGE } from './../config/index.js'
 import { NextFunction, Response, Request } from 'express'
 import { z } from 'zod'
-import { logger } from '../utils/logger'
-import { openai } from '../utils/openai'
+import { logger } from '../utils/logger.js'
+import { openai } from '../utils/openai.js'
 
 export const edgeSchema = z.object({
   text: z.string().trim().min(5, { message: '文本最少 5 字符！' }),

@@ -1,9 +1,9 @@
-import { BaseStorage } from '../storage/baseStorage'
-import { MemoryStorage } from '../storage/memoryStorage'
-import { FileStorage } from '../storage/fileStorage'
-import { logger } from '../utils/logger'
+import { BaseStorage } from '../storage/baseStorage.js'
+import { MemoryStorage } from '../storage/memoryStorage.js'
+import { FileStorage } from '../storage/fileStorage.js'
+import { logger } from '../utils/logger.js'
 import crypto from 'crypto'
-// import { RedisStorage } from '../storage/redisStorage'; // 可选 Redis 实现
+// import { RedisStorage } from '../storage/redisStorage.js'; // 可选 Redis 实现
 
 export interface CacheOptions {
   storageType?: 'memory' | 'file' | 'redis' // 存储类型

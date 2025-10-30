@@ -4,8 +4,8 @@ import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { Response } from 'express'
 import { PassThrough, Readable, Stream } from 'stream'
-import { logger } from './logger'
-import { AUDIO_DIR } from '../config'
+import { logger } from './logger.js'
+import { AUDIO_DIR } from '../config/index.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)

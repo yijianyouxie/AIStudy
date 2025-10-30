@@ -1,5 +1,5 @@
 // services/cache/storage/fileStorage.ts
-import { BaseStorage } from './baseStorage';
+import { BaseStorage } from './baseStorage.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 

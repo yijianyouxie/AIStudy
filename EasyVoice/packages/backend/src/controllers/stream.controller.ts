@@ -1,10 +1,11 @@
 import path from 'path'
 import { Request, Response, NextFunction } from 'express'
-import { logger } from '../utils/logger'
-import taskManager from '../utils/taskManager'
-import { EdgeSchema } from '../schema/generate'
-import { generateTTSStream, generateTTSStreamJson } from '../services/tts.stream.service'
-import { generateId, streamWithLimit } from '../utils'
+import { logger } from '../utils/logger.js'
+import taskManager from '../utils/taskManager.js'
+import { EdgeSchema } from '../schema/generate.js'
+import { generateTTSStream, generateTTSStreamJson } from '../services/tts.stream.service.js'
+import { generateId, streamWithLimit } from '../utils/index.js'
+
 function formatBody({ text, pitch, voice, volume, rate, useLLM }: EdgeSchema) {
   const positivePercent = (value: string | undefined) => {
     if (value === '0%' || value === '0' || value === undefined || value === '') return '+0%'

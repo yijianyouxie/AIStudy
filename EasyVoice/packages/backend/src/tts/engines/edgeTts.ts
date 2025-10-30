@@ -1,6 +1,6 @@
 import { Readable } from 'stream'
-import { EdgeTTS } from '../../lib/node-edge-tts/edge-tts-fixed'
-import { TTSEngine, TtsOptions } from '../types'
+import { EdgeTTS } from '../../lib/node-edge-tts/edge-tts-fixed.js'
+import { TTSEngine, TtsOptions } from '../types.js'
 import path from 'path'
 
 export class EdgeTtsEngine implements TTSEngine {

@@ -1,8 +1,8 @@
-import { ttsPluginManager } from '../pluginManager'
-import { EdgeTtsEngine } from './edgeTts'
-import { OpenAITtsEngine } from './openaiTts'
-import { KokoroTtsEngine } from './kokoroTts'
-import { REGISTER_KOKORO, REGISTER_OPENAI_TTS, TTS_KOKORO_URL } from '../../config'
+import { ttsPluginManager } from '../pluginManager.js'
+import { EdgeTtsEngine } from './edgeTts.js'
+import { OpenAITtsEngine } from './openaiTts.js'
+import { KokoroTtsEngine } from './kokoroTts.js'
+import { REGISTER_KOKORO, REGISTER_OPENAI_TTS, TTS_KOKORO_URL } from '../../config/index.js'
 
 export function registerEngines() {
   ttsPluginManager.registerEngine(new EdgeTtsEngine())

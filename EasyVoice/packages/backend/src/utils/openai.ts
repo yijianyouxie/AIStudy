@@ -1,7 +1,7 @@
 import { AxiosError } from 'axios'
-import { MODEL_NAME, OPENAI_BASE_URL, OPENAI_API_KEY } from '../config'
-import { logger } from './logger'
-import { fetcher } from './request'
+import { MODEL_NAME, OPENAI_BASE_URL, OPENAI_API_KEY } from '../config/index.js'
+import { logger } from './logger.js'
+import { fetcher } from './request.js'
 
 // 配置接口定义
 interface OpenAIConfig {

@@ -1,5 +1,5 @@
 // services/cache/storage/redisStorage.ts
-// import { BaseStorage } from './baseStorage';
+// import { BaseStorage } from './baseStorage.js';
 // export class RedisStorage extends BaseStorage { }
 // import { createClient, RedisClientType } from 'redis';
 

@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
-import { logger } from './logger'
+import { logger } from './logger.js'
 
 // 定义响应数据的通用接口
 export interface ResponseData<T> extends AxiosResponse {

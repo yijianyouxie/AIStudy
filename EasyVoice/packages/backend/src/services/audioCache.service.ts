@@ -1,6 +1,6 @@
-import { logger } from '../utils/logger'
-import { AUDIO_CACHE_DIR } from '../config'
-import CacheService, { CacheOptions } from './cache.service'
+import { logger } from '../utils/logger.js'
+import { AUDIO_CACHE_DIR } from '../config/index.js'
+import CacheService, { CacheOptions } from './cache.service.js'
 
 interface AudioData {
   voice: string

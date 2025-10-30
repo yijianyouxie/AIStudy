@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import { logger } from '../utils/logger'
+import { logger } from '../utils/logger.js'
 
 export function healthHandler(req: Request, res: Response) {
   try {

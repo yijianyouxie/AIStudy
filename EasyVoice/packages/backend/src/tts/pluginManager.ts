@@ -1,4 +1,4 @@
-import { TTSEngine } from './types'
+import { TTSEngine } from './types.js'
 
 export class TtsPluginManager {
   private engines: Map<string, TTSEngine> = new Map()

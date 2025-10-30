@@ -1,5 +1,5 @@
 // services/cache/storage/memoryStorage.ts
-import { BaseStorage } from './baseStorage';
+import { BaseStorage } from './baseStorage.js';
 
 export class MemoryStorage extends BaseStorage {
   private cache: Map<string, any>;

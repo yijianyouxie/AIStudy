@@ -1,8 +1,8 @@
 import crypto from 'crypto'
 import { memoryUsage } from 'process'
 import { Request, Response, NextFunction } from 'express'
-import { formatFileSize } from '.'
-import { logger } from './logger'
+import { formatFileSize } from './index.js'
+import { logger } from './logger.js'
 
 interface Options {
   prefix?: string

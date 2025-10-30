@@ -3,8 +3,7 @@
   "version": "0.0.15",
   "type": "module",
    "scripts": {
-    "build": "tsc && npm run fix-js-imports && copyfiles -u 1 \"src/**/*.{json,txt,yml}\" dist/",
-    "fix-js-imports": "node scripts/fix-imports.js",
+    "build": "tsc && copyfiles -u 1 \"src/**/*.{json,txt,yml}\" dist/",
     "dev": "cross-env NODE_ENV=development node --loader tsx --watch src/server.ts",
     "start": "node dist/server.js"
   },

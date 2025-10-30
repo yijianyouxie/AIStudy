@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
-import { logger } from '../utils/logger'
-import { ErrorMessages } from '../services/tts.service'
+import { logger } from '../utils/logger.js'
+import { ErrorRequestHandler } from 'express'
+import { ErrorMessages } from '../services/tts.service.js'
 
 export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
   const errorDetails = {

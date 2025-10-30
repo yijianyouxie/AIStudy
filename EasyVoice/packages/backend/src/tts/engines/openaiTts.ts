@@ -1,5 +1,5 @@
-import { TTSEngine, TtsOptions } from '../types'
-import { fetcher } from '../../utils/request'
+import { TTSEngine, TtsOptions } from '../types.js'
+import { fetcher } from '../../utils/request.js'
 
 const OPENAI_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'] as const
 type OpenAIVoice = (typeof OPENAI_VOICES)[number]

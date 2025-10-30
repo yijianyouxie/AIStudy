@@ -1,5 +1,5 @@
-import { TTSEngine, TtsOptions } from '../types'
-import { fetcher } from '../../utils/request'
+import { TTSEngine, TtsOptions } from '../types.js'
+import { fetcher } from '../../utils/request.js'
 import { Readable } from 'stream' // Node.js 流支持
 
 // Kokoro 支持的音频格式

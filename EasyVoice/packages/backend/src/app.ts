@@ -1,11 +1,11 @@
 import express, { Application } from 'express'
-import { logger } from './utils/logger'
-import { createMiddlewareConfig } from './middleware/config'
-import { configureStaticFiles } from './middleware/static'
-import { setupRoutes } from './routes'
-import { registerEngines } from './tts/engines'
-import { ttsPluginManager } from './tts/pluginManager'
-import { errorHandler } from './middleware/error.middleware'
+import { logger } from './utils/logger.js'
+import { createMiddlewareConfig } from './middleware/config.js'
+import { configureStaticFiles } from './middleware/static.js'
+import { setupRoutes } from './routes/index.js'
+import { registerEngines } from './tts/engines/index.js'
+import { ttsPluginManager } from './tts/pluginManager.js'
+import { errorHandler } from './middleware/error.middleware.js'
 
 // 应用配置接口
 interface AppConfig {
