@@ -28,8 +28,17 @@ export async function runEdgeTTS({
   logger.info('run with nodejs edge-tts service...')
   
   if (outputType === 'file') {
+    // 修复文件命名逻辑，确保正确处理文件扩展名
+    let baseOutput = output;
+    // 移除可能存在的扩展名，确保我们从基础文件名开始
+    if (baseOutput.endsWith('.wav')) {
+      baseOutput = baseOutput.slice(0, -4);
+    } else if (baseOutput.endsWith('.mp3')) {
+      baseOutput = baseOutput.slice(0, -4);
+    }
+    
     // Use .mp3 extension for the initial output
-    const mp3Output = output.endsWith('.wav') ? output.replace('.wav', '.mp3') : output + '.mp3'
+    const mp3Output = baseOutput + '.mp3';
     logger.info(`Generating MP3 file at: ${mp3Output}`)
     
     try {
@@ -50,9 +59,11 @@ export async function runEdgeTTS({
     }
     
     // If output is already a WAV file, convert MP3 to WAV using ffmpeg
+    let finalOutput = mp3Output;
     if (output.endsWith('.wav')) {
       // Convert MP3 to WAV using ffmpeg with optimized parameters
-      logger.info(`Converting MP3 to WAV: ${mp3Output} -> ${output}`)
+      const wavOutput = baseOutput + '.wav';
+      logger.info(`Converting MP3 to WAV: ${mp3Output} -> ${wavOutput}`)
       try {
         await new Promise<void>((resolve, reject) => {
           ffmpeg(mp3Output)
@@ -67,9 +78,10 @@ export async function runEdgeTTS({
               logger.info('FFmpeg conversion completed successfully')
               resolve()
             })
-            .save(output)
+            .save(wavOutput)
         })
-        logger.info(`WAV file generated successfully at: ${output}`)
+        logger.info(`WAV file generated successfully at: ${wavOutput}`)
+        finalOutput = wavOutput;
         
         // Remove the temporary MP3 file
         await fs.unlink(mp3Output).catch(err => logger.warn('Failed to delete temporary MP3 file:', err))
@@ -77,17 +89,14 @@ export async function runEdgeTTS({
         logger.error('Error during ffmpeg conversion:', error)
         throw error
       }
-    } else {
-      // If output is not a WAV file, move the MP3 file to the output path
-      if (mp3Output !== output) {
-        await fs.rename(mp3Output, output)
-        logger.info(`Moved MP3 file from ${mp3Output} to ${output}`)
-      }
     }
     
+    // 修复字幕文件路径生成逻辑
+    const srtPath = baseOutput + '.srt';
+    
     return {
-      audio: output,
-      srt: output.replace('.wav', '.srt').replace('.mp3', '.srt'),
+      audio: finalOutput,
+      srt: srtPath,
       file: '',
     }
   }

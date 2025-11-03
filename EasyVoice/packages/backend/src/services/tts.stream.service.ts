@@ -91,7 +91,17 @@ export async function generateTTSStreamJson(formatedBody: Required<EdgeSchema>[]
  */
 async function buildSegment(params: TTSParams & { format?: string }, task: Task, dir: string = '') {
   const { segment } = task.context as Required<NonNullable<Task['context']>>
-  const outputBase = path.resolve(AUDIO_DIR, dir, segment.id)
+  // 修复文件命名逻辑，确保正确处理文件扩展名
+  const fileName = segment.id;
+  let outputBase = path.resolve(AUDIO_DIR, dir, fileName);
+  
+  // 移除可能存在的扩展名，确保我们从基础文件名开始
+  if (outputBase.endsWith('.wav')) {
+    outputBase = outputBase.slice(0, -4);
+  } else if (outputBase.endsWith('.mp3')) {
+    outputBase = outputBase.slice(0, -4);
+  }
+  
   const { res } = task.context as Required<NonNullable<Task['context']>>
 
   // Check if we have cached audio for this segment
@@ -254,7 +264,8 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
       pitch: params.pitch || '+0Hz',
       volume: params.volume || '+0%',
       audio: finalAudioPath,
-      srt: finalAudioPath.replace(/\.(wav|mp3)$/, '.srt')
+      // 修复字幕文件路径生成逻辑
+      srt: outputBase + '.srt'
     }).catch(err => logger.warn('Failed to cache audio:', err))
     
   } catch (error) {
@@ -268,6 +279,7 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
 
   // Handle subtitles after streaming is set up
   setTimeout(() => {
+    // 修复字幕生成函数调用
     handleSrt(outputBase)
     // Ensure task is marked as completed even if subtitle handling fails
     if (task.status !== 'completed') {
