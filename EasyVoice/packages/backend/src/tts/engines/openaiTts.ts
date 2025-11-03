@@ -1,5 +1,86 @@
 import { TTSEngine, TtsOptions } from '../types.js'
 import { fetcher } from '../../utils/request.js'
+import ffmpeg from 'fluent-ffmpeg'
+import { fileExist, safeRunWithRetry } from '../../utils/index.js'
+import { logger } from '../../utils/logger.js'
+import fs from 'fs/promises'
+
+export const runOpenaiTTS = async ({
+  text,
+  voice,
+  output,
+  outputType = 'file',
+}: any) => {
+  logger.info('run with openai tts service with wav format...')
+  if (outputType === 'file') {
+    // Use .mp3 extension for the initial output
+    const mp3Output = output.replace('.wav', '.mp3')
+    const response = await fetcher.post(
+      'https://api.openai.com/v1/audio/speech',
+      {
+        model: 'tts-1',
+        voice: voice as any,
+        input: text,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        responseType: 'arraybuffer',
+      }
+    )
+    const buffer = Buffer.from(response.data)
+    await fs.writeFile(mp3Output, buffer)
+    
+    // Convert MP3 to WAV using ffmpeg
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(mp3Output)
+        .toFormat('wav')
+        .on('error', reject)
+        .on('end', () => resolve())
+        .save(output)
+    })
+    
+    // Generate SRT file
+    const srtPath = output.replace('.wav', '.srt')
+    return {
+      audio: output,
+      srt: srtPath,
+    }
+  } else {
+    const response = await fetcher.post(
+      'https://api.openai.com/v1/audio/speech',
+      {
+        model: 'tts-1',
+        voice: voice as any,
+        input: text,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        responseType: 'arraybuffer',
+      }
+    )
+    return Buffer.from(response.data)
+  }
+}
+
+export const generateSingleVoice = async (params: any) => {
+  let result: TTSResult = {
+    audio: '',
+    srt: '',
+  }
+  await safeRunWithRetry(
+    async () => {
+      result = (await runOpenaiTTS({ ...params })) as TTSResult
+    },
+    { retries: 5 }
+  )
+  return result!
+}
 
 const OPENAI_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'] as const
 type OpenAIVoice = (typeof OPENAI_VOICES)[number]

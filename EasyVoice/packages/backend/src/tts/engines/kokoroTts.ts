@@ -1,6 +1,70 @@
 import { TTSEngine, TtsOptions } from '../types.js'
 import { fetcher } from '../../utils/request.js'
 import { Readable } from 'stream' // Node.js 流支持
+import ffmpeg from 'fluent-ffmpeg'
+import { fileExist, safeRunWithRetry } from '../../utils/index.js'
+import { logger } from '../../utils/logger.js'
+import axios from 'axios'
+import fs from 'fs/promises'
+
+export const runKokoroTTS = async ({
+  text,
+  voice,
+  output,
+  outputType = 'file',
+}: any) => {
+  logger.info('run with kokoro tts service with wav format...')
+  if (outputType === 'file') {
+    // Use .mp3 extension for the initial output
+    const mp3Output = output.replace('.wav', '.mp3')
+    const response = await axios.post('http://localhost:5000/tts', {
+      text,
+      voice,
+    }, {
+      responseType: 'arraybuffer'
+    })
+    const buffer = Buffer.from(response.data)
+    await fs.writeFile(mp3Output, buffer)
+    
+    // Convert MP3 to WAV using ffmpeg
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(mp3Output)
+        .toFormat('wav')
+        .on('error', reject)
+        .on('end', () => resolve())
+        .save(output)
+    })
+    
+    // Generate SRT file
+    const srtPath = output.replace('.wav', '.srt')
+    return {
+      audio: output,
+      srt: srtPath,
+    }
+  } else {
+    const response = await axios.post('http://localhost:5000/tts', {
+      text,
+      voice,
+    }, {
+      responseType: 'arraybuffer'
+    })
+    return Buffer.from(response.data)
+  }
+}
+
+export const generateSingleVoice = async (params: any) => {
+  let result: TTSResult = {
+    audio: '',
+    srt: '',
+  }
+  await safeRunWithRetry(
+    async () => {
+      result = (await runKokoroTTS({ ...params })) as TTSResult
+    },
+    { retries: 5 }
+  )
+  return result!
+}
 
 // Kokoro 支持的音频格式
 const RESPONSE_FORMATS = ['mp3', 'wav'] as const

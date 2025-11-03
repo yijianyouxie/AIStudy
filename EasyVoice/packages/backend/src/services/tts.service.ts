@@ -204,7 +204,7 @@ async function buildSegment(
   }, 200)
   return {
     audio: `${STATIC_DOMAIN}/${path.join(dir, id)}`,
-    srt: `${STATIC_DOMAIN}/${path.join(dir, id.replace('.mp3', '.srt'))}`,
+    srt: `${STATIC_DOMAIN}/${path.join(dir, id.replace('.wav', '.srt'))}`,
   }
 }
 
@@ -387,7 +387,7 @@ export async function concatDirSrt({
   const mergedJson = mergeSubtitleFiles(subtitleFiles)
   const tempJsonPath = path.resolve(inputDir, 'all_splits.mp3.json')
   await fs.writeFile(tempJsonPath, JSON.stringify(mergedJson, null, 2))
-  await generateSrt(tempJsonPath, outputFile.replace('.mp3', '.srt'))
+  await generateSrt(tempJsonPath, outputFile.replace('.wav', '.srt'))
 }
 
 /**

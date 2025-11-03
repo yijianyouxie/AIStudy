@@ -1,5 +1,71 @@
 import { Readable } from 'stream'
 import { EdgeTTS } from '../../lib/node-edge-tts/edge-tts-fixed.js'
+import ffmpeg from 'fluent-ffmpeg'
+import { fileExist, safeRunWithRetry } from '../../utils/index.js'
+import { logger } from '../../utils/logger.js'
+
+export const runEdgeTTS = async ({
+  text,
+  pitch,
+  volume,
+  voice,
+  rate,
+  output,
+  outputType = 'file',
+}: any) => {
+  const lang = /([a-zA-Z]{2,5}-[a-zA-Z]{2,5}\b)/.exec(voice)?.[1]
+  const tts = new EdgeTTS({
+    voice,
+    lang,
+    outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
+    saveSubtitles: true,
+    pitch,
+    rate,
+    volume,
+    timeout: 10_000,
+  })
+  logger.info('run with nodejs edge-tts service with wav format...')
+  console.log(`edgeTts00,run with nodejs edge-tts service...`)
+  if (outputType === 'file') {
+    // Use .mp3 extension for the initial output
+    const mp3Output = output.replace('.wav', '.mp3')
+    await tts.ttsPromise(text, { audioPath: mp3Output, outputType: 'file' })
+    
+    // Convert MP3 to WAV using ffmpeg
+    console.log(`edgeTts01,run with nodejs edge-tts service...`)
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(mp3Output)
+        .toFormat('wav')
+        .on('error', reject)
+        .on('end', () => resolve())
+        .save(output)
+    })
+    
+    // Return the WAV file path and SRT path
+    return {
+      audio: output,
+      srt: output.replace('.wav', '.srt'),
+    }
+  } else {
+    console.log(`edgeTts02,run with nodejs edge-tts service...`)
+    return await tts.ttsPromise(text, { outputType: outputType as ('stream' | 'buffer' | 'file') | undefined })
+  }
+}
+
+export const generateSingleVoice = async (params: any) => {
+  let result: TTSResult = {
+    audio: '',
+    srt: '',
+  }
+  await safeRunWithRetry(
+    async () => {
+      result = (await runEdgeTTS({ ...params })) as TTSResult
+    },
+    { retries: 5 }
+  )
+  return result!
+}
+
 import { TTSEngine, TtsOptions } from '../types.js'
 import path from 'path'
 

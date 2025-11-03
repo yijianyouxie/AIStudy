@@ -1,7 +1,9 @@
 import fs from 'fs/promises'
+import ffmpeg from 'fluent-ffmpeg'
 import { EdgeSchema } from '../schema/generate.js'
 import { EdgeTTS } from '../lib/node-edge-tts/edge-tts-fixed.js'
 import { fileExist, readJson, safeRunWithRetry } from '../utils/index.js'
+import { logger } from '../utils/logger.js'
 
 export async function runEdgeTTS({
   text,
@@ -23,17 +25,74 @@ export async function runEdgeTTS({
     volume,
     timeout: 30_000,
   })
-  console.log(`run with nodejs edge-tts service...`)
+  logger.info('run with nodejs edge-tts service...')
+  
   if (outputType === 'file') {
-    await tts.ttsPromise(text, { audioPath: output, outputType })
+    // Use .mp3 extension for the initial output
+    const mp3Output = output.endsWith('.wav') ? output.replace('.wav', '.mp3') : output + '.mp3'
+    logger.info(`Generating MP3 file at: ${mp3Output}`)
+    
+    try {
+      await tts.ttsPromise(text, { audioPath: mp3Output, outputType })
+      logger.info(`MP3 file generated successfully at: ${mp3Output}`)
+    } catch (error) {
+      logger.error('Error generating MP3 file:', error)
+      throw error
+    }
+    
+    // Check if MP3 file exists
+    try {
+      await fs.access(mp3Output)
+      logger.info(`MP3 file exists: ${mp3Output}`)
+    } catch (error) {
+      logger.error(`MP3 file does not exist: ${mp3Output}`, error)
+      throw new Error(`Failed to generate MP3 file: ${mp3Output}`)
+    }
+    
+    // If output is already a WAV file, convert MP3 to WAV using ffmpeg
+    if (output.endsWith('.wav')) {
+      // Convert MP3 to WAV using ffmpeg
+      logger.info(`Converting MP3 to WAV: ${mp3Output} -> ${output}`)
+      try {
+        await new Promise<void>((resolve, reject) => {
+          ffmpeg(mp3Output)
+            .toFormat('wav')
+            .on('error', (err) => {
+              logger.error('FFmpeg conversion error:', err)
+              reject(err)
+            })
+            .on('end', () => {
+              logger.info('FFmpeg conversion completed successfully')
+              resolve()
+            })
+            .save(output)
+        })
+        logger.info(`WAV file generated successfully at: ${output}`)
+        
+        // Remove the temporary MP3 file
+        await fs.unlink(mp3Output).catch(err => logger.warn('Failed to delete temporary MP3 file:', err))
+      } catch (error) {
+        logger.error('Error during ffmpeg conversion:', error)
+        throw error
+      }
+    } else {
+      // If output is not a WAV file, move the MP3 file to the output path
+      if (mp3Output !== output) {
+        await fs.rename(mp3Output, output)
+        logger.info(`Moved MP3 file from ${mp3Output} to ${output}`)
+      }
+    }
+    
     return {
       audio: output,
-      srt: output.replace('.mp3', '.srt'),
+      srt: output.replace('.wav', '.srt').replace('.mp3', '.srt'),
       file: '',
     }
   }
+  
   return tts.ttsPromise(text, { audioPath: output, outputType: outputType as any })
 }
+
 export const generateSingleVoice = async (
   params: Omit<EdgeSchema, 'useLLM'> & { output: string }
 ) => {
@@ -43,16 +102,20 @@ export const generateSingleVoice = async (
   }
   await safeRunWithRetry(
     async () => {
+      console.log(`edge-tts.service02,runEdgeTTS...`)
       result = (await runEdgeTTS({ ...params })) as TTSResult
     },
     { retries: 5 }
   )
   return result!
 }
+
 export const generateSingleVoiceStream = async (
   params: Omit<EdgeSchema, 'useLLM'> & { output: string; outputType?: string }
 ) => {
-  return runEdgeTTS({ ...params, outputType: 'stream' })
+  console.log(`edge-tts.service01,runEdgeTTS...`)
+  // When streaming, we still want to generate a file but read it as a stream
+  return runEdgeTTS({ ...params, outputType: 'file' })
 }
 
 // 定义字幕数据的类型

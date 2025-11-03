@@ -544,10 +544,13 @@ const handleGenerate = (event: Event) => {
   }
 }
 const updateAudioList = (data: GenerateResponse) => {
+  // 确保文件名以.wav结尾
+  const fileName = data.file?.endsWith('.wav') ? data.file : `${data.file}.wav`
+  
   const audioItem = {
     ...data,
     audio: data.audio,
-    file: data.file,
+    file: fileName,
     size: data.size,
     srt: data.srt,
     isDownloading: false,
@@ -585,6 +588,10 @@ const generateAudio = async () => {
     const { data } = await generateTTS(params)
     if (!data) {
       throw new Error(`no data returned from generateTTS`)
+    }
+    // 确保返回的数据中文件名包含.wav扩展名
+    if (data.file && !data.file.endsWith('.wav')) {
+      data.file = `${data.file}.wav`
     }
     updateAudioList(data)
   } catch (error) {
@@ -630,13 +637,14 @@ const generateAudioTask = async () => {
     }
     const onFinished = (newAudioUrl: string, blobs: Blob[]) => {
       audioPlayerRef.value!.audioRef!.src = newAudioUrl
-      const name = `${params.voice}-${params.text.slice(0, 10)}-${Date.now()}`
+      // 确保文件名以.wav结尾
+      const name = `${params.voice}-${params.text.slice(0, 10)}-${Date.now()}.wav`
       generating.value = false
       const result = {
         audio: audioPlayerRef.value!.audioRef!.src,
         file: name,
-        id: name,
-        name,
+        id: name.replace('.wav', ''),
+        name: name,
         blobs,
       }
       generationStore.updateProgress(100)
@@ -709,200 +717,3 @@ onMounted(async () => {
   }
 })
 </script>
-
-<style scoped>
-.novel-to-audio-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem;
-  color: #2c3e50;
-}
-
-.header {
-  text-align: center;
-  margin-bottom: 2.5rem;
-}
-
-.header h1 {
-  font-size: 2.5rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: #1a56db;
-}
-
-.subtitle {
-  font-size: 1.1rem;
-  color: #64748b;
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem 0;
-}
-
-.input-card,
-.settings-card {
-  height: 100%;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  border-radius: 8px;
-  transition: all 0.3s ease;
-}
-
-.input-card:hover,
-.settings-card:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-}
-
-.el-input.el-input--large {
-  margin-bottom: 1rem;
-}
-
-.upload-area {
-  margin-top: 1.5rem;
-  border-top: 1px dashed #e2e8f0;
-  padding-top: 1.5rem;
-}
-
-.voice-mode-selector {
-  margin-bottom: 1.5rem;
-  display: flex;
-  justify-content: center;
-}
-.sparkles-icon {
-  position: absolute;
-  top: -8px;
-  right: 2px;
-}
-.voice-selector,
-.ai-settings {
-  margin-bottom: 1.5rem;
-}
-
-.voice-option {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-}
-
-.voice-personality {
-  font-size: 0.8rem;
-  color: #64748b;
-}
-
-.preview-section {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px dashed #e2e8f0;
-}
-
-.preview-audio {
-  width: 100%;
-  margin-top: 1rem;
-}
-
-.action-area {
-  margin-top: 2rem;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.progress-container {
-  width: 100%;
-  max-width: 600px;
-  margin: 1.5rem auto;
-}
-.progress-bar {
-  margin-top: 20px;
-  margin-bottom: 20px;
-  height: 12px;
-}
-.progress-text {
-  font-weight: 600;
-  color: #1a56db;
-}
-
-.progress-status {
-  text-align: center;
-  margin-top: 0.5rem;
-  color: #64748b;
-  font-size: 0.9rem;
-}
-
-.download-area {
-  margin-top: 1.5rem;
-  text-align: center;
-}
-
-/* 响应式布局 */
-@media (max-width: 1200px) {
-  .novel-to-audio-container {
-    padding: 1.5rem 1rem;
-  }
-}
-
-@media (max-width: 992px) {
-  .header h1 {
-    font-size: 2.2rem;
-  }
-
-  .subtitle {
-    font-size: 1rem;
-  }
-}
-
-@media (max-width: 768px) {
-  .el-row {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .el-col {
-    width: 100% !important;
-    max-width: 100%;
-    flex: 0 0 100%;
-    margin-bottom: 1.5rem;
-  }
-
-  .header {
-    margin-bottom: 1.5rem;
-  }
-
-  .header h1 {
-    font-size: 1.8rem;
-  }
-
-  .action-area {
-    margin-top: 1rem;
-  }
-}
-
-@media (max-width: 576px) {
-  .novel-to-audio-container {
-    padding: 1rem 0.75rem;
-  }
-
-  .header h1 {
-    font-size: 1.5rem;
-  }
-
-  .subtitle {
-    font-size: 0.9rem;
-  }
-
-  .card-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-  }
-
-  .voice-mode-selector .el-radio-group {
-    width: 100%;
-    display: flex;
-  }
-}
-</style>

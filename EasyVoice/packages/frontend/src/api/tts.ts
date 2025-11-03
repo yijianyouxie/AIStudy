@@ -14,6 +14,7 @@ export interface GenerateRequest {
   voice?: string
   rate?: string
   pitch?: string
+  format?: 'mp3' | 'wav' | 'ogg' // 添加format字段支持多种格式
   useLLM?: boolean
   openaiBaseUrl?: string
   openaiKey?: string
@@ -70,7 +71,13 @@ export const getVoiceList = async () => {
 }
 
 export const generateTTS = async (data: GenerateRequest) => {
-  const response = await api.post<ResponseWrapper<GenerateResponse>>('/generate', data)
+  // 默认使用wav格式
+  const requestData = {
+    ...data,
+    format: data.format || 'wav'
+  }
+  
+  const response = await api.post<ResponseWrapper<GenerateResponse>>('/generate', requestData)
   if (response.data?.code !== 200 || !response.data?.success) {
     throw new Error(response.data?.message || '生成语音失败')
   }
@@ -114,5 +121,3 @@ export const createTaskStream = async (data: TaskRequest) => {
   }
   return response.data as ReadableStream
 }
-
-export const downloadFile = (file: string) => `${api.defaults.baseURL}/download/${file}`

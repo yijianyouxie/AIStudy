@@ -87,6 +87,225 @@ export async function generateTTSStreamJson(formatedBody: Required<EdgeSchema>[]
 }
 
 /**
+ * 生成单个片段的音频和字幕
+ */
+async function buildSegment(params: TTSParams & { format?: string }, task: Task, dir: string = '') {
+  const { segment } = task.context as Required<NonNullable<Task['context']>>
+  const outputBase = path.resolve(AUDIO_DIR, dir, segment.id)
+  const { res } = task.context as Required<NonNullable<Task['context']>>
+
+  // Generate MP3 file first - always generate MP3 first
+  const mp3Output = outputBase + '.mp3'
+  logger.info(`Generating MP3 for streaming at: ${mp3Output}`)
+  
+  try {
+    const result = await generateSingleVoiceStream({
+      ...params,
+      output: mp3Output,
+      outputType: 'file'
+    }) as any
+
+    const generatedMp3Path = result.audio || mp3Output
+    logger.info(`MP3 file generated at: ${generatedMp3Path}`)
+    
+    // Check if MP3 file exists
+    try {
+      await fs.access(generatedMp3Path)
+      logger.info(`Generated MP3 file exists: ${generatedMp3Path}`)
+    } catch (error) {
+      logger.error(`Generated MP3 file does not exist: ${generatedMp3Path}`, error)
+      throw new Error(`Failed to generate MP3 file: ${generatedMp3Path}`)
+    }
+    
+    // Check if we need to convert to WAV format
+    const needWavFormat = params.format === 'wav'
+    logger.info(`Need WAV format conversion: ${needWavFormat}`)
+    
+    if (needWavFormat) {
+      // Set appropriate content type for WAV
+      res!.setHeader('Content-Type', 'audio/wav')
+      
+      // Convert MP3 to WAV and stream
+      const wavOutput = outputBase + '.wav'
+      logger.info(`Converting MP3 to WAV: ${generatedMp3Path} -> ${wavOutput}`)
+      
+      try {
+        await new Promise<void>((resolve, reject) => {
+          ffmpeg(generatedMp3Path)
+            .toFormat('wav')
+            .on('error', (err) => {
+              logger.error('WAV conversion error:', err)
+              reject(err)
+            })
+            .on('end', () => {
+              logger.info('FFmpeg conversion completed successfully')
+              resolve()
+            })
+            .save(wavOutput)
+        })
+        
+        // Check if WAV file exists
+        try {
+          await fs.access(wavOutput)
+          logger.info(`WAV file exists: ${wavOutput}`)
+        } catch (error) {
+          logger.error(`WAV file does not exist: ${wavOutput}`, error)
+          throw new Error(`Failed to generate WAV file: ${wavOutput}`)
+        }
+        
+        // Stream the WAV file
+        logger.info(`Streaming WAV file: ${wavOutput}`)
+        const fileBuffer = await fs.readFile(wavOutput)
+        res!.write(fileBuffer)
+        res!.end()
+        
+        // Clean up temporary files
+        await fs.unlink(generatedMp3Path).catch(err => logger.warn('Failed to delete MP3 file:', err))
+        await fs.unlink(wavOutput).catch(err => logger.warn('Failed to delete WAV file:', err))
+        
+        // Mark task as completed
+        task.endTask?.(task.id)
+      } catch (error) {
+        logger.error('Error during WAV conversion or streaming:', error)
+        // Fallback to MP3 if WAV conversion fails
+        logger.info('Falling back to MP3 streaming')
+        const fileBuffer = await fs.readFile(generatedMp3Path)
+        res!.setHeader('Content-Type', 'audio/mpeg')
+        res!.write(fileBuffer)
+        res!.end()
+        // Clean up temporary files
+        await fs.unlink(generatedMp3Path).catch(err => logger.warn('Failed to delete MP3 file:', err))
+        
+        // Mark task as completed
+        task.endTask?.(task.id)
+      }
+    } else {
+      // Set appropriate content type for MP3
+      res!.setHeader('Content-Type', 'audio/mpeg')
+      
+      // Directly stream MP3
+      logger.info(`Streaming MP3 file: ${generatedMp3Path}`)
+      const fileBuffer = await fs.readFile(generatedMp3Path)
+      res!.write(fileBuffer)
+      res!.end()
+      // Clean up temporary MP3 file
+      await fs.unlink(generatedMp3Path).catch(err => logger.warn('Failed to delete MP3 file:', err))
+      
+      // Mark task as completed
+      task.endTask?.(task.id)
+    }
+  } catch (error) {
+    logger.error('Error in buildSegment:', error)
+    if (!res!.headersSent) {
+      res!.status(500).send({ error: 'Failed to generate audio' })
+    }
+    task.endTask?.(task.id)
+    throw error
+  }
+
+  // Handle subtitles after streaming is set up
+  setTimeout(() => {
+    handleSrt(outputBase)
+  }, 200)
+}
+
+/**
+ * 生成多个片段并合并的 TTS
+ */
+
+interface SegmentError extends Error {
+  segmentIndex: number
+  attempt: number
+}
+
+async function buildSegmentList(segments: (BuildSegment & { format?: string })[], task: Task): Promise<void> {
+  const { res, segment } = task.context as Required<NonNullable<Task['context']>>
+  const { id: outputId } = segment
+  const totalSegments = segments.length
+  const output = path.resolve(AUDIO_DIR, outputId)
+  let completedSegments = 0
+  if (!totalSegments) {
+    task?.endTask?.(task.id)
+    return void res.status(400).end('No segments provided')
+  }
+
+  const progress = () => Number(((completedSegments / totalSegments) * 100).toFixed(2))
+  const outputStream = new PassThrough()
+
+  streamToResponse(res, outputStream, {
+    headers: {
+      'content-type': 'application/octet-stream',
+      'x-generate-tts-type': 'stream',
+      'Access-Control-Expose-Headers-generate-tts-id': task.id,
+    },
+    onError: (err) => `Custom error: ${err.message}`,
+    fileName: segment.id,
+    onEnd: () => {
+      task?.endTask?.(task.id)
+      logger.info(`Streaming ${task.id} finished`)
+      setTimeout(() => {
+        handleSrt(output)
+      }, 200)
+    },
+    onClose: () => {
+      task?.endTask?.(task.id)
+      logger.info(`Streaming ${task.id} closed`)
+    },
+  })
+
+  const processSegment = async (index: number, maxRetries = 3): Promise<void> => {
+    if (index >= totalSegments) {
+      outputStream.end()
+      task?.endTask?.(task.id)
+      return
+    }
+
+    const segment = segments[index]
+    const generateWithRetry = async (attempt = 0): Promise<Readable> => {
+      try {
+        return (await generateSingleVoiceStream({
+          ...segment,
+          outputType: 'stream',
+          output,
+        })) as Readable
+      } catch (err) {
+        const error = err as Error
+        if (attempt + 1 >= maxRetries) {
+          throw Object.assign(error, { segmentIndex: index, attempt: attempt + 1 } as SegmentError)
+        }
+        logger.warn(
+          `Segment ${index + 1} failed (attempt ${attempt + 1}/${maxRetries}): ${error.message}`
+        )
+        await asyncSleep(1000)
+        return generateWithRetry(attempt + 1)
+      }
+    }
+
+    try {
+      // TODO: Concurrency of streaming flow
+      const audioStream = await generateWithRetry()
+      await audioStream.pipe(outputStream, { end: false })
+      await new Promise((resolve) => audioStream.on('end', resolve))
+      completedSegments++
+      logger.info(`processing text:\n ${segment.text.slice(0, 10)}...`)
+      logger.info(`Segment ${index + 1}/${totalSegments} completed. Progress: ${progress()}%`)
+      await processSegment(index + 1)
+    } catch (err) {
+      const { segmentIndex, attempt, message } = err as SegmentError
+      logger.error(`Segment ${segmentIndex + 1} failed after ${attempt} retries: ${message}`)
+      outputStream.emit('error', err)
+    }
+  }
+
+  try {
+    await processSegment(0)
+  } catch (err) {
+    logger.error(`Audio processing aborted: ${(err as Error).message}`)
+    !res.headersSent && res.status(500).end('Internal server error')
+  }
+}
+
+/**
  * 使用 LLM 生成 TTS
  */
 async function generateWithLLMStream(task: Task) {
@@ -192,45 +411,6 @@ async function generateWithoutLLMStream(params: TTSParams, task: Task) {
   }
 }
 
-/**
- * 生成单个片段的音频和字幕
- */
-async function buildSegment(params: TTSParams, task: Task, dir: string = '') {
-  const { segment } = task.context as Required<NonNullable<Task['context']>>
-  const output = path.resolve(AUDIO_DIR, dir, segment.id)
-  const stream = (await generateSingleVoiceStream({
-    ...params,
-    output,
-    outputType: 'stream',
-  })) as Readable
-  const { res } = task.context as Required<NonNullable<Task['context']>>
-
-  streamToResponse(res, stream, {
-    headers: {
-      'content-type': 'application/octet-stream',
-      'x-generate-tts-type': 'stream',
-      'Access-Control-Expose-Headers-generate-tts-id': task.id,
-    },
-    fileName: segment.id,
-    onError: (err) => `Custom error: ${err.message}`,
-    onEnd: () => {
-      task?.endTask?.(task.id)
-      logger.info(`Streaming ${task.id} finished`)
-      setTimeout(() => {
-        handleSrt(output)
-      }, 200)
-    },
-  })
-}
-
-/**
- * 生成多个片段并合并的 TTS
- */
-
-interface SegmentError extends Error {
-  segmentIndex: number
-  attempt: number
-}
 export async function handleSrt(audioPath: string, stream = true) {
   if (!stream) {
     const tempJsonPath = audioPath + '.json'
@@ -247,92 +427,6 @@ export async function handleSrt(audioPath: string, stream = true) {
     .map((file) => path.join(tmpDir, file))
   if (!fileList.length) return
   concatDirSrt({ jsonFiles: fileList, inputDir: tmpDir, outputFile: audioPath })
-}
-async function buildSegmentList(segments: BuildSegment[], task: Task): Promise<void> {
-  const { res, segment } = task.context as Required<NonNullable<Task['context']>>
-  const { id: outputId } = segment
-  const totalSegments = segments.length
-  const output = path.resolve(AUDIO_DIR, outputId)
-  let completedSegments = 0
-  if (!totalSegments) {
-    task?.endTask?.(task.id)
-    return void res.status(400).end('No segments provided')
-  }
-
-  const progress = () => Number(((completedSegments / totalSegments) * 100).toFixed(2))
-  const outputStream = new PassThrough()
-
-  streamToResponse(res, outputStream, {
-    headers: {
-      'content-type': 'application/octet-stream',
-      'x-generate-tts-type': 'stream',
-      'Access-Control-Expose-Headers-generate-tts-id': task.id,
-    },
-    onError: (err) => `Custom error: ${err.message}`,
-    fileName: segment.id,
-    onEnd: () => {
-      task?.endTask?.(task.id)
-      logger.info(`Streaming ${task.id} finished`)
-      setTimeout(() => {
-        handleSrt(output)
-      }, 200)
-    },
-    onClose: () => {
-      task?.endTask?.(task.id)
-      logger.info(`Streaming ${task.id} closed`)
-    },
-  })
-
-  const processSegment = async (index: number, maxRetries = 3): Promise<void> => {
-    if (index >= totalSegments) {
-      outputStream.end()
-      task?.endTask?.(task.id)
-      return
-    }
-
-    const segment = segments[index]
-    const generateWithRetry = async (attempt = 0): Promise<Readable> => {
-      try {
-        return (await generateSingleVoiceStream({
-          ...segment,
-          outputType: 'stream',
-          output,
-        })) as Readable
-      } catch (err) {
-        const error = err as Error
-        if (attempt + 1 >= maxRetries) {
-          throw Object.assign(error, { segmentIndex: index, attempt: attempt + 1 } as SegmentError)
-        }
-        logger.warn(
-          `Segment ${index + 1} failed (attempt ${attempt + 1}/${maxRetries}): ${error.message}`
-        )
-        await asyncSleep(1000)
-        return generateWithRetry(attempt + 1)
-      }
-    }
-
-    try {
-      // TODO: Concurrency of streaming flow
-      const audioStream = await generateWithRetry()
-      await audioStream.pipe(outputStream, { end: false })
-      await new Promise((resolve) => audioStream.on('end', resolve))
-      completedSegments++
-      logger.info(`processing text:\n ${segment.text.slice(0, 10)}...`)
-      logger.info(`Segment ${index + 1}/${totalSegments} completed. Progress: ${progress()}%`)
-      await processSegment(index + 1)
-    } catch (err) {
-      const { segmentIndex, attempt, message } = err as SegmentError
-      logger.error(`Segment ${segmentIndex + 1} failed after ${attempt} retries: ${message}`)
-      outputStream.emit('error', err)
-    }
-  }
-
-  try {
-    await processSegment(0)
-  } catch (err) {
-    logger.error(`Audio processing aborted: ${(err as Error).message}`)
-    !res.headersSent && res.status(500).end('Internal server error')
-  }
 }
 
 /**
