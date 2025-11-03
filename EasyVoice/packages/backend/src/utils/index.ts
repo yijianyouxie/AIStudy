@@ -6,6 +6,7 @@ import { Response } from 'express'
 import { PassThrough, Readable, Stream } from 'stream'
 import { logger } from './logger.js'
 import { AUDIO_DIR } from '../config/index.js'
+import { createHash } from 'crypto'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -81,9 +82,14 @@ function defaultErrorHandler(err: unknown, attempt: number): void {
 export async function asyncSleep(delay = 200) {
   return new Promise((resolve) => setTimeout(resolve, delay))
 }
-export function generateId(voice: string, text: string) {
-  const now = Date.now()
-  return `${voice}-${safeFileName(text).slice(0, 10)}-${now}.wav`
+/**
+ * 生成稳定ID，不包含时间戳
+ */
+export function generateId(prefix: string, text: string): string {
+  const hash = createHash('md5')
+  hash.update(text)
+  const textHash = hash.digest('hex').substring(0, 8)
+  return `${prefix}-${textHash}.wav`
 }
 export function safeFileName(fileName: string) {
   return fileName.replace(/[/\\?%*:|"<>\r\n\s#]/g, '-')

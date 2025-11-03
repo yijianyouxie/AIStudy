@@ -94,6 +94,52 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
   const outputBase = path.resolve(AUDIO_DIR, dir, segment.id)
   const { res } = task.context as Required<NonNullable<Task['context']>>
 
+  // Check if we have cached audio for this segment
+  const cacheParams = {
+    text: segment.text,
+    voice: params.voice,
+    rate: params.rate || '+0%',
+    pitch: params.pitch || '+0Hz',
+    volume: params.volume || '+0%',
+    format: params.format || 'wav'
+  };
+  
+  const cacheKey = taskManager.generateTaskId(cacheParams);
+  logger.info(`Checking cache with key: ${cacheKey}`, cacheParams);
+  
+  const cachedAudio = await audioCacheInstance.getAudio(cacheKey);
+  if (cachedAudio) {
+    logger.info(`Using cached audio for segment: ${segment.id}`)
+    const audioPath = cachedAudio.audio;
+    
+    try {
+      // Check if file exists
+      await fs.access(audioPath);
+      
+      // Set appropriate content type based on format
+      if (params.format === 'wav') {
+        res!.setHeader('Content-Type', 'audio/wav')
+        // Stream the WAV file
+        const fileBuffer = await fs.readFile(audioPath)
+        res!.write(fileBuffer)
+        res!.end()
+      } else {
+        res!.setHeader('Content-Type', 'audio/mpeg')
+        // Stream the MP3 file
+        const fileBuffer = await fs.readFile(audioPath)
+        res!.write(fileBuffer)
+        res!.end()
+      }
+      
+      // Mark task as completed
+      task.endTask?.(task.id)
+      return;
+    } catch (fileError) {
+      logger.warn(`Cached audio file not found, re-processing: ${audioPath}`, fileError)
+      // Continue with normal processing if file not found
+    }
+  }
+
   // Generate MP3 file first - always generate MP3 first
   const mp3Output = outputBase + '.mp3'
   logger.info(`Generating MP3 for streaming at: ${mp3Output}`)
@@ -121,11 +167,13 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
     const needWavFormat = params.format === 'wav'
     logger.info(`Need WAV format conversion: ${needWavFormat}`)
     
+    let finalAudioPath = '';
+    
     if (needWavFormat) {
       // Set appropriate content type for WAV
       res!.setHeader('Content-Type', 'audio/wav')
       
-      // Convert MP3 to WAV and stream
+      // Convert MP3 to WAV and stream with optimized parameters
       const wavOutput = outputBase + '.wav'
       logger.info(`Converting MP3 to WAV: ${generatedMp3Path} -> ${wavOutput}`)
       
@@ -133,6 +181,8 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
         await new Promise<void>((resolve, reject) => {
           ffmpeg(generatedMp3Path)
             .toFormat('wav')
+            .audioFrequency(22050) // Reduce sample rate for smaller file and faster processing
+            .audioChannels(1) // Use mono instead of stereo for smaller file
             .on('error', (err) => {
               logger.error('WAV conversion error:', err)
               reject(err)
@@ -159,9 +209,10 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
         res!.write(fileBuffer)
         res!.end()
         
+        finalAudioPath = wavOutput;
+        
         // Clean up temporary files
         await fs.unlink(generatedMp3Path).catch(err => logger.warn('Failed to delete MP3 file:', err))
-        await fs.unlink(wavOutput).catch(err => logger.warn('Failed to delete WAV file:', err))
         
         // Mark task as completed
         task.endTask?.(task.id)
@@ -173,8 +224,7 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
         res!.setHeader('Content-Type', 'audio/mpeg')
         res!.write(fileBuffer)
         res!.end()
-        // Clean up temporary files
-        await fs.unlink(generatedMp3Path).catch(err => logger.warn('Failed to delete MP3 file:', err))
+        finalAudioPath = generatedMp3Path;
         
         // Mark task as completed
         task.endTask?.(task.id)
@@ -188,12 +238,25 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
       const fileBuffer = await fs.readFile(generatedMp3Path)
       res!.write(fileBuffer)
       res!.end()
-      // Clean up temporary MP3 file
-      await fs.unlink(generatedMp3Path).catch(err => logger.warn('Failed to delete MP3 file:', err))
+      
+      finalAudioPath = generatedMp3Path;
       
       // Mark task as completed
       task.endTask?.(task.id)
     }
+    
+    // Cache the result
+    logger.info(`Caching audio with key: ${cacheKey}`)
+    await audioCacheInstance.setAudio(cacheKey, {
+      voice: params.voice,
+      text: segment.text,
+      rate: params.rate || '+0%',
+      pitch: params.pitch || '+0Hz',
+      volume: params.volume || '+0%',
+      audio: finalAudioPath,
+      srt: finalAudioPath.replace(/\.(wav|mp3)$/, '.srt')
+    }).catch(err => logger.warn('Failed to cache audio:', err))
+    
   } catch (error) {
     logger.error('Error in buildSegment:', error)
     if (!res!.headersSent) {
@@ -206,6 +269,10 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
   // Handle subtitles after streaming is set up
   setTimeout(() => {
     handleSrt(outputBase)
+    // Ensure task is marked as completed even if subtitle handling fails
+    if (task.status !== 'completed') {
+      task.endTask?.(task.id)
+    }
   }, 200)
 }
 

@@ -1,28 +1,23 @@
 import path from 'path'
+import fs from 'fs/promises'
 import { Request, Response, NextFunction } from 'express'
 import { logger } from '../utils/logger.js'
 import taskManager from '../utils/taskManager.js'
 import { EdgeSchema } from '../schema/generate.js'
 import { generateTTSStream, generateTTSStreamJson } from '../services/tts.stream.service.js'
 import { generateId, streamWithLimit } from '../utils/index.js'
+import audioCacheInstance from '../services/audioCache.service.js'
 
-function formatBody({ text, pitch, voice, volume, rate, useLLM, format }: any) {
-  const positivePercent = (value: string | undefined) => {
-    if (value === '0%' || value === '0' || value === undefined || value === '') return '+0%'
-    return value
-  }
-  const positiveHz = (value: string | undefined) => {
-    if (value === '0Hz' || value === '0' || value === undefined || value === '') return '+0Hz'
-    return value
-  }
+function formatBody(body: any): Required<EdgeSchema> & { format?: string } {
+  const { text, voice, rate, pitch, volume, format = 'wav', useLLM = false } = body
   return {
-    text: text.trim(),
-    pitch: positiveHz(pitch),
-    voice: positivePercent(voice),
-    rate: positivePercent(rate),
-    volume: positivePercent(volume),
+    text: text?.trim(),
+    voice: voice?.trim() || 'zh-CN-XiaoxiaoNeural',
+    rate: rate?.trim() || '+0%',
+    pitch: pitch?.trim() || '+0Hz',
+    volume: volume?.trim() || '+0%',
+    format,
     useLLM,
-    format: format || 'wav' // 默认使用WAV格式
   }
 }
 /**
@@ -49,13 +44,46 @@ export async function createTaskStream(req: Request, res: Response, next: NextFu
       if (existingTask.status === 'completed') {
         // Reuse the existing completed task result
         logger.info(`Reusing completed task: ${taskId}`)
-        const result = existingTask.context?.result
-        if (result) {
-          res.setHeader('x-generate-tts-type', 'application/json')
-          res.setHeader('Access-Control-Expose-Headers', 'x-generate-tts-type')
-          res.json({ code: 200, data: result, success: true })
-          return
+        // For streaming requests, we should check if we have cached audio files
+        // and stream them directly instead of re-processing
+        const cacheKey = taskId; // Use taskId as cache key
+        const cachedAudio = await audioCacheInstance.getAudio(cacheKey);
+        
+        if (cachedAudio) {
+          // Stream cached audio directly
+          logger.info(`Streaming cached audio for task: ${taskId}`)
+          const audioPath = cachedAudio.audio;
+          
+          try {
+            // Check if file exists
+            await fs.access(audioPath);
+            
+            // Set appropriate content type based on format
+            const format = formattedBody.format || 'wav';
+            if (format === 'wav') {
+              res.setHeader('Content-Type', 'audio/wav');
+            } else {
+              res.setHeader('Content-Type', 'audio/mpeg');
+            }
+            
+            // Stream the file
+            const fileBuffer = await fs.readFile(audioPath);
+            res.write(fileBuffer);
+            res.end();
+            
+            return;
+          } catch (fileError) {
+            logger.warn(`Cached audio file not found, re-processing: ${audioPath}`, fileError);
+            // Continue with normal processing if file not found
+          }
         }
+        
+        // If no cache or cache invalid, process again but with a new task
+        const task = taskManager.createTask(formattedBody)
+        task.context = { req, res, body: req.body }
+        logger.info(`Generated stream task ID: ${task.id}`)
+        generateTTSStream(formattedBody, task)
+        return
       } else if (existingTask.status === 'pending') {
         // Task is still processing, wait for it to complete
         logger.info(`Task ${taskId} is still processing, waiting for completion`)
@@ -67,10 +95,13 @@ export async function createTaskStream(req: Request, res: Response, next: NextFu
           success: false 
         })
         return
+      } else if (existingTask.status === 'failed') {
+        // Remove failed task and create a new one
+        taskManager.tasks.delete(taskId);
       }
     }
     
-    // Create new task if it doesn't exist
+    // Create new task if it doesn't exist or is failed
     const task = taskManager.createTask(formattedBody)
     task.context = { req, res, body: req.body }
     logger.info(`Generated stream task ID: ${task.id}`)

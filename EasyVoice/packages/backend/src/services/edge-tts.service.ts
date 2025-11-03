@@ -51,12 +51,14 @@ export async function runEdgeTTS({
     
     // If output is already a WAV file, convert MP3 to WAV using ffmpeg
     if (output.endsWith('.wav')) {
-      // Convert MP3 to WAV using ffmpeg
+      // Convert MP3 to WAV using ffmpeg with optimized parameters
       logger.info(`Converting MP3 to WAV: ${mp3Output} -> ${output}`)
       try {
         await new Promise<void>((resolve, reject) => {
           ffmpeg(mp3Output)
             .toFormat('wav')
+            .audioFrequency(22050) // Reduce sample rate for smaller file and faster processing
+            .audioChannels(1) // Use mono instead of stereo for smaller file
             .on('error', (err) => {
               logger.error('FFmpeg conversion error:', err)
               reject(err)

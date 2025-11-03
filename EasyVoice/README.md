@@ -242,3 +242,6 @@ info: Streaming WAV file: G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-CN-X
 ### mp3d到wav转换过程用时2s多。
 ## 2025-10-31 问题2，在Unity端进行请求的时候，重复的文本第二次请求的时候，服务报错：info: Task task180855e214c4841f839956f53e2925bc is still processing, waiting for completion {"timestamp":"2025-11-03T02:38:14.302Z"}
 info: POST /api/v1/tts/createStream 409 3ms {"meta":{},"timestamp":"2025-11-03T02:38:14.303Z"}
+## 2025-11-03 mp3转为wav格式的时候，增加限定参数（频率和通道数），缩短转换时间。
+## 2025-11-03，重复请求相同文本问题是的报错解决，以及使用缓存。
+## 2025-11-03 现在在Unity中请求的是流式的音频文件吗？wav是mp3边生成边转换的吗？服务器端缓存的音频文件缓存到哪里了呢？
