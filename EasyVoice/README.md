@@ -228,3 +228,17 @@ pnpm dev
 - 当前主要通过 Edge-TTS API 提供免费语音合成。  
 
 - 未来计划支持官方 API、Google TTS、声音克隆等功能。
+
+# 开发过程
+## 2025-10-31 由于 Edge-TTS API 的限制，只能生成mp3格式的音频，所以使用ffmpeg将mp3转为wav格式。这一步需要安装ffmpeg.
+## 2025-10-31 问题1，使用ffmpegeg将mp3转为wav格式的过程中耗时较长，待分析和解决。
+### 示例文本：我是大哈哈哈，你是叫什么名字嗯，哼高翔认识你，希望在后续的工程过程汇总能够合作愉快。谢谢。
+### 转换过程：info: Generated MP3 file exists: G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-CN-XiaoxiaoNeural-我是大哈哈哈，你是叫-1762137470037.wav.mp3 {"timestamp":"2025-11-03T02:37:52.133Z"}
+info: Need WAV format conversion: true {"timestamp":"2025-11-03T02:37:52.133Z"}
+info: Converting MP3 to WAV: G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-CN-XiaoxiaoNeural-我是大哈哈哈，你是叫-1762137470037.wav.mp3 -> G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-CN-XiaoxiaoNeural-我是大哈哈哈，你是叫-1762137470037.wav.wav {"timestamp":"2025-11-03T02:37:52.134Z"}
+info: FFmpeg conversion completed successfully {"timestamp":"2025-11-03T02:37:54.426Z"}
+info: WAV file exists: G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-CN-XiaoxiaoNeural-我是大哈哈哈，你是叫-1762137470037.wav.wav {"timestamp":"2025-11-03T02:37:54.427Z"}
+info: Streaming WAV file: G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-CN-XiaoxiaoNeural-我是大哈哈哈，你是叫-1762137470037.wav.wav {"timestamp":"2025-11-03T02:37:54.428Z"}
+### mp3d到wav转换过程用时2s多。
+## 2025-10-31 问题2，在Unity端进行请求的时候，重复的文本第二次请求的时候，服务报错：info: Task task180855e214c4841f839956f53e2925bc is still processing, waiting for completion {"timestamp":"2025-11-03T02:38:14.302Z"}
+info: POST /api/v1/tts/createStream 409 3ms {"meta":{},"timestamp":"2025-11-03T02:38:14.303Z"}
