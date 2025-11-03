@@ -270,8 +270,8 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
     
     // Handle subtitles after streaming is set up
     setTimeout(() => {
-      // 修复字幕生成函数调用
-      handleSrt(finalAudioPath)
+      // 修复字幕生成函数调用，为每个分段生成对应的字幕文件
+      handleSrt(outputBase) // 使用outputBase而不是finalAudioPath，确保生成正确的字幕文件名
       // Ensure task is marked as completed even if subtitle handling fails
       if (task.status !== 'completed') {
         task.endTask?.(task.id)
@@ -322,6 +322,7 @@ async function buildSegmentList(segments: (BuildSegment & { format?: string })[]
       task?.endTask?.(task.id)
       logger.info(`Streaming ${task.id} finished`)
       setTimeout(() => {
+        // 修复：处理所有片段的字幕文件并合并
         handleSrt(output)
       }, 200)
     },
@@ -338,13 +339,16 @@ async function buildSegmentList(segments: (BuildSegment & { format?: string })[]
       return
     }
 
+    // 为每个片段生成唯一的输出路径
+    const segmentOutput = `${output}_segment_${index}`;
+    
     const segment = segments[index]
     const generateWithRetry = async (attempt = 0): Promise<Readable> => {
       try {
         return (await generateSingleVoiceStream({
           ...segment,
           outputType: 'stream',
-          output,
+          output: segmentOutput, // 使用唯一的输出路径
         })) as Readable
       } catch (err) {
         const error = err as Error
@@ -361,17 +365,37 @@ async function buildSegmentList(segments: (BuildSegment & { format?: string })[]
 
     try {
       // TODO: Concurrency of streaming flow
-      const audioStream = await generateWithRetry()
-      await audioStream.pipe(outputStream, { end: false })
-      await new Promise((resolve) => audioStream.on('end', resolve))
-      completedSegments++
-      logger.info(`processing text:\n ${segment.text.slice(0, 10)}...`)
-      logger.info(`Segment ${index + 1}/${totalSegments} completed. Progress: ${progress()}%`)
-      await processSegment(index + 1)
+      const result = await generateWithRetry()
+      // 修复：检查返回值是流对象还是结果对象
+      if (typeof result === 'object' && result !== null && 'audio' in result) {
+        // 如果是结果对象（包含audio属性），则直接读取文件并写入输出流
+        const audioPath = (result as { audio: string }).audio;
+        const audioBuffer = await fs.readFile(audioPath);
+        outputStream.write(audioBuffer);
+        
+        // 为当前分段生成对应的字幕文件
+        setTimeout(() => {
+          handleSrt(segmentOutput);
+        }, 200);
+      } else {
+        // 如果是流对象，则使用pipe方法
+        await (result as Readable).pipe(outputStream, { end: false });
+        await new Promise((resolve) => (result as Readable).on('end', resolve));
+        
+        // 为当前分段生成对应的字幕文件
+        setTimeout(() => {
+          handleSrt(segmentOutput);
+        }, 200);
+      }
+      
+      completedSegments++;
+      logger.info(`processing text:\n ${segment.text.slice(0, 10)}...`);
+      logger.info(`Segment ${index + 1}/${totalSegments} completed. Progress: ${progress()}%`);
+      await processSegment(index + 1);
     } catch (err) {
-      const { segmentIndex, attempt, message } = err as SegmentError
-      logger.error(`Segment ${segmentIndex + 1} failed after ${attempt} retries: ${message}`)
-      outputStream.emit('error', err)
+      const { segmentIndex, attempt, message } = err as SegmentError;
+      logger.error(`Segment ${segmentIndex + 1} failed after ${attempt} retries: ${message}`);
+      outputStream.emit('error', err);
     }
   }
 
@@ -512,6 +536,53 @@ export async function handleSrt(audioPath: string, stream = true) {
     return
   }
   
+  // 对于流式处理，首先检查是否存在分段字幕文件
+  // 检查是否存在分段音频文件对应的字幕文件
+  const segmentSrtFiles: string[] = [];
+  let segmentIndex = 0;
+  
+  // 查找所有分段字幕文件
+  while (true) {
+    const segmentBasePath = `${baseAudioPath}_segment_${segmentIndex}`;
+    const possibleSegmentSrtPaths = [
+      segmentBasePath + '.srt',
+      segmentBasePath + '.mp3.srt',
+      segmentBasePath + '.wav.srt'
+    ];
+    
+    let foundSegmentSrt = false;
+    for (const srtPath of possibleSegmentSrtPaths) {
+      try {
+        await fs.access(srtPath);
+        segmentSrtFiles.push(srtPath);
+        foundSegmentSrt = true;
+        break;
+      } catch (error) {
+        // 继续尝试下一个可能的路径
+      }
+    }
+    
+    // 如果没有找到当前分段的字幕文件，停止查找
+    if (!foundSegmentSrt) {
+      break;
+    }
+    
+    segmentIndex++;
+  }
+  
+  // 如果找到分段字幕文件，则合并它们
+  if (segmentSrtFiles.length > 0) {
+    try {
+      logger.info(`Merging ${segmentSrtFiles.length} segment SRT files into ${srtPath}`);
+      await mergeSrtFiles(segmentSrtFiles, srtPath);
+      logger.info(`SRT file generated successfully by merging segments at: ${srtPath}`);
+      return;
+    } catch (error) {
+      logger.error(`Failed to merge segment SRT files into ${srtPath}`, error);
+    }
+  }
+  
+  // 如果没有分段字幕文件，继续原有逻辑
   // 对于流式处理，首先检查是否存在临时目录
   const tmpDir = baseAudioPath + '_tmp'
   try {
@@ -714,6 +785,39 @@ export async function concatDirSrt({
   const tempJsonPath = path.resolve(inputDir, 'all_splits.mp3.json')
   await fs.writeFile(tempJsonPath, JSON.stringify(mergedJson, null, 2))
   await generateSrt(tempJsonPath, outputFile.replace('.mp3', '.srt'))
+}
+
+/**
+ * 合并多个SRT字幕文件
+ * @param srtFiles 要合并的SRT文件路径数组
+ * @param outputFile 合并后的输出文件路径
+ */
+async function mergeSrtFiles(srtFiles: string[], outputFile: string): Promise<void> {
+  let mergedContent = '';
+  let subtitleIndex = 1;
+  
+  for (const srtFile of srtFiles) {
+    try {
+      const content = await fs.readFile(srtFile, 'utf-8');
+      const blocks = content.trim().split('\n\n');
+      
+      for (const block of blocks) {
+        if (block.trim() === '') continue;
+        
+        const lines = block.split('\n');
+        if (lines.length >= 3) {
+          // 更新字幕序号
+          lines[0] = subtitleIndex.toString();
+          mergedContent += lines.join('\n') + '\n\n';
+          subtitleIndex++;
+        }
+      }
+    } catch (error) {
+      logger.warn(`Failed to read or process SRT file ${srtFile}:`, error);
+    }
+  }
+  
+  await fs.writeFile(outputFile, mergedContent.trim(), 'utf-8');
 }
 
 /**

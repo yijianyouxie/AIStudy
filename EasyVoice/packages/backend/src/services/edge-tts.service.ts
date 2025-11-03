@@ -126,6 +126,13 @@ export const generateSingleVoiceStream = async (
 ) => {
   console.log(`edge-tts.service01,runEdgeTTS...`)
   // When streaming, we still want to generate a file but read it as a stream
+  if (params.outputType === 'stream') {
+    // 返回一个真正的可读流
+    const result = await runEdgeTTS({ ...params, outputType: 'file' }) as { audio: string; srt: string; file: string; };
+    // 创建一个可读流来传输音频文件
+    const fs = await import('fs');
+    return fs.createReadStream(result.audio);
+  }
   return runEdgeTTS({ ...params, outputType: 'file' })
 }
 
