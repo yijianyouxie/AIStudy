@@ -268,6 +268,15 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
       srt: outputBase + '.srt'
     }).catch(err => logger.warn('Failed to cache audio:', err))
     
+    // Handle subtitles after streaming is set up
+    setTimeout(() => {
+      // 修复字幕生成函数调用
+      handleSrt(finalAudioPath)
+      // Ensure task is marked as completed even if subtitle handling fails
+      if (task.status !== 'completed') {
+        task.endTask?.(task.id)
+      }
+    }, 200)
   } catch (error) {
     logger.error('Error in buildSegment:', error)
     if (!res!.headersSent) {
@@ -276,16 +285,6 @@ async function buildSegment(params: TTSParams & { format?: string }, task: Task,
     task.endTask?.(task.id)
     throw error
   }
-
-  // Handle subtitles after streaming is set up
-  setTimeout(() => {
-    // 修复字幕生成函数调用
-    handleSrt(outputBase)
-    // Ensure task is marked as completed even if subtitle handling fails
-    if (task.status !== 'completed') {
-      task.endTask?.(task.id)
-    }
-  }, 200)
 }
 
 /**
@@ -491,21 +490,105 @@ async function generateWithoutLLMStream(params: TTSParams, task: Task) {
 }
 
 export async function handleSrt(audioPath: string, stream = true) {
+  // 修复字幕文件路径生成逻辑
+  let srtPath: string;
+  let baseAudioPath: string; // 用于查找JSON文件的基础路径
+  
+  if (audioPath.endsWith('.wav')) {
+    srtPath = audioPath.slice(0, -4) + '.srt';  // 移除.wav并添加.srt
+    baseAudioPath = audioPath.slice(0, -4); // 获取基础路径用于查找JSON文件
+  } else if (audioPath.endsWith('.mp3')) {
+    srtPath = audioPath.slice(0, -4) + '.srt';  // 移除.mp3并添加.srt
+    baseAudioPath = audioPath.slice(0, -4); // 获取基础路径用于查找JSON文件
+  } else {
+    srtPath = audioPath + '.srt';  // 直接添加.srt
+    baseAudioPath = audioPath; // 基础路径就是原路径
+  }
+  
   if (!stream) {
-    const tempJsonPath = audioPath + '.json'
-    await generateSrt(tempJsonPath, audioPath.replace('.mp3', '.srt'))
+    // 对于非流式处理，直接查找对应的JSON文件
+    const tempJsonPath = baseAudioPath + '.json'
+    await generateSrt(tempJsonPath, srtPath)
     return
   }
-  const { dir, base } = path.parse(audioPath)
-  const tmpDir = audioPath + '_tmp'
-  await ensureDir(tmpDir)
+  
+  // 对于流式处理，首先检查是否存在临时目录
+  const tmpDir = baseAudioPath + '_tmp'
+  try {
+    // 检查临时目录是否存在
+    await fs.access(tmpDir)
+  } catch (error) {
+    // 如果临时目录不存在，尝试直接查找JSON文件
+    logger.info(`Temporary directory does not exist: ${tmpDir}, checking for direct JSON file`)
+    
+    // 尝试查找与基础音频文件名匹配的JSON文件（可能是.mp3.json）
+    const possibleJsonPaths = [
+      baseAudioPath + '.json',     // 基本情况
+      baseAudioPath + '.mp3.json', // MP3格式的JSON
+      baseAudioPath + '.wav.json'  // WAV格式的JSON
+    ];
+    
+    for (const jsonPath of possibleJsonPaths) {
+      try {
+        await fs.access(jsonPath)
+        // 如果找到JSON文件，则直接生成字幕
+        await generateSrt(jsonPath, srtPath)
+        logger.info(`SRT file generated successfully from ${jsonPath} at: ${srtPath}`)
+        return
+      } catch (jsonError) {
+        // 继续尝试下一个可能的路径
+        continue
+      }
+    }
+    
+    logger.warn(`No JSON file found for subtitle generation among: ${possibleJsonPaths.join(', ')}`)
+    return
+  }
 
   const fileList = (await readdir(tmpDir))
-    .filter((file) => file.includes(base) && file.includes('.json'))
-    .sort((a, b) => Number(a.split('.json.')?.[1] || 0) - Number(b.split('.json.')?.[1] || 0))
+    .filter((file) => file.includes('.json'))
+    .sort((a, b) => {
+      // 提取文件名中的序号进行排序
+      const numA = parseInt(a.split('.json.')?.[1] || '0')
+      const numB = parseInt(b.split('.json.')?.[1] || '0')
+      return numA - numB
+    })
     .map((file) => path.join(tmpDir, file))
-  if (!fileList.length) return
-  concatDirSrt({ jsonFiles: fileList, inputDir: tmpDir, outputFile: audioPath })
+    
+  if (!fileList.length) {
+    // 如果临时目录中没有JSON文件，尝试查找直接JSON文件
+    logger.warn(`No JSON files found in ${tmpDir} for subtitle generation, checking for direct JSON file`)
+    
+    // 尝试查找与基础音频文件名匹配的JSON文件（可能是.mp3.json）
+    const possibleJsonPaths = [
+      baseAudioPath + '.json',     // 基本情况
+      baseAudioPath + '.mp3.json', // MP3格式的JSON
+      baseAudioPath + '.wav.json'  // WAV格式的JSON
+    ];
+    
+    for (const jsonPath of possibleJsonPaths) {
+      try {
+        await fs.access(jsonPath)
+        // 如果找到JSON文件，则直接生成字幕
+        await generateSrt(jsonPath, srtPath)
+        logger.info(`SRT file generated successfully from ${jsonPath} at: ${srtPath}`)
+        return
+      } catch (jsonError) {
+        // 继续尝试下一个可能的路径
+        continue
+      }
+    }
+    
+    logger.warn(`No JSON file found for subtitle generation among: ${possibleJsonPaths.join(', ')}`)
+    return
+  }
+  
+  try {
+    await concatDirSrt({ jsonFiles: fileList, inputDir: tmpDir, outputFile: srtPath })
+    logger.info(`SRT file generated successfully at: ${srtPath}`)
+  } catch (error) {
+    logger.error(`Failed to generate SRT file at: ${srtPath}`, error)
+  }
 }
 
 /**
