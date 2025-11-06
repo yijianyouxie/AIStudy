@@ -230,6 +230,8 @@ pnpm dev
 - 未来计划支持官方 API、Google TTS、声音克隆等功能。
 
 # 开发过程
+## 得先安装Node.js
+## frac库导入问题是通过升级项目，使其支持ESm模块的动态导入。详细日志可查看：https://chat.deepseek.com/share/vkb9w3uzn6jthdc4y5 以及这个项目的提交日志：G:\AI\GitProject\EasyVoice
 ## 2025-10-31 由于 Edge-TTS API 的限制，只能生成mp3格式的音频，所以使用ffmpeg将mp3转为wav格式。这一步需要安装ffmpeg.
 ## 2025-10-31 问题1，使用ffmpegeg将mp3转为wav格式的过程中耗时较长，待分析和解决。
 ### 示例文本：我是大哈哈哈，你是叫什么名字嗯，哼高翔认识你，希望在后续的工程过程汇总能够合作愉快。谢谢。
@@ -239,7 +241,7 @@ info: Converting MP3 to WAV: G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-C
 info: FFmpeg conversion completed successfully {"timestamp":"2025-11-03T02:37:54.426Z"}
 info: WAV file exists: G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-CN-XiaoxiaoNeural-我是大哈哈哈，你是叫-1762137470037.wav.wav {"timestamp":"2025-11-03T02:37:54.427Z"}
 info: Streaming WAV file: G:\AI\AIStudy\EasyVoice\packages\backend\audio\zh-CN-XiaoxiaoNeural-我是大哈哈哈，你是叫-1762137470037.wav.wav {"timestamp":"2025-11-03T02:37:54.428Z"}
-### mp3d到wav转换过程用时2s多。
+### mp3到wav转换过程用时2s多。
 ## 2025-10-31 问题2，在Unity端进行请求的时候，重复的文本第二次请求的时候，服务报错：info: Task task180855e214c4841f839956f53e2925bc is still processing, waiting for completion {"timestamp":"2025-11-03T02:38:14.302Z"}
 info: POST /api/v1/tts/createStream 409 3ms {"meta":{},"timestamp":"2025-11-03T02:38:14.303Z"}
 ## 2025-11-03 mp3转为wav格式的时候，增加限定参数（频率和通道数），缩短转换时间。
