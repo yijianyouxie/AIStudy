@@ -134,51 +134,39 @@ const playAudio = async (item: Audio, _: number) => {
     }
   })
 }
-const commonDownload = (
-  item: Audio,
-  file: string,
-  title: string,
-  loadingProp: keyof Pick<Audio, 'isSrtLoading' | 'isDownloading'>
-) => {
+
+const downloadAudio = async (item: Audio, _index: number) => {
   try {
-    item[loadingProp] = true
-    const url = file.startsWith('blob') ? file : downloadFile(file)
-    const link = document.createElement('a')
-    link.target = '_blank'
-    link.href = url
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    ElMessage.success(`下载${title}成功！`)
+    item.isDownloading = true
+    const file = item.file
+    // 从文件路径中提取文件名
+    const filename = file.split('/').pop() || 'audio.wav'
+    await downloadFile(file, filename)
+    ElMessage.success('下载音频成功！')
   } catch (err) {
-    console.log(`commonDownload error: ${file}`, (err as Error).message)
+    console.error('下载音频失败:', err)
+    ElMessage.error('下载音频失败！')
   } finally {
-    setTimeout(() => {
-      item[loadingProp] = false
-    }, 200)
+    item.isDownloading = false
   }
 }
-function downloadByBlobs(blobs: Blob[], name: string) {
-  const mimeType = 'audio/mpeg'
-  const audioBlob = new Blob(blobs, { type: mimeType })
-  const url = URL.createObjectURL(audioBlob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name?.endsWith('.mp3') ? name : `${name}.mp3`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-const downloadAudio = (item: Audio, _: number) => {
-  if (item.blobs) return downloadByBlobs(item.blobs, item.name || 'audio')
-  if (!item.file) return
-  commonDownload(item, item.file, '音频', 'isDownloading')
-}
-const downloadSrt = (item: Audio, _: number) => {
-  console.log('item.srt', item.srt)
-  if (!item.srt) return
-  commonDownload(item, item.srt, '字幕', 'isSrtLoading')
+
+const downloadSrt = async (item: Audio, _index: number) => {
+  try {
+    item.isSrtLoading = true
+    const file = item.srt
+    if (file) {
+      // 从文件路径中提取文件名
+      const filename = file.split('/').pop() || 'subtitle.srt'
+      await downloadFile(file, filename)
+      ElMessage.success('下载字幕成功！')
+    }
+  } catch (err) {
+    console.error('下载字幕失败:', err)
+    ElMessage.error('下载字幕失败！')
+  } finally {
+    item.isSrtLoading = false
+  }
 }
 
 const removeDownloadItem = (item: Audio) => {
