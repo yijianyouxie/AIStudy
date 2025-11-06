@@ -121,3 +121,26 @@ export const createTaskStream = async (data: TaskRequest) => {
   }
   return response.data as ReadableStream
 }
+
+/**
+ * 下载文件
+ * @param url 文件URL
+ * @param filename 保存的文件名
+ */
+export const downloadFile = async (url: string, filename: string) => {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(href);
+  } catch (error) {
+    console.error('下载文件失败:', error);
+    throw error;
+  }
+}

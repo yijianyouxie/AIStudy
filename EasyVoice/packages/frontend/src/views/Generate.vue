@@ -279,6 +279,7 @@ const audioPlayerRef = ref<InstanceType<typeof StreamButton> | null>(null)
 const processor = ref<ReturnType<typeof createAudioStreamProcessor> | null>(null)
 
 const languages = ref([
+  { code: 'ALL', name: '全部语言' },
   { code: 'zh-CN', name: '中文（简体）' },
   { code: 'zh-TW', name: '中文（繁体）' },
   { code: 'zh-HK', name: '中文（香港）' },
@@ -342,6 +343,11 @@ const betterShowCN = (voiceList: Voice[]) => {
   return voiceList
 }
 const filteredVoices = computed(() => {
+  // 如果语言设置为 'ALL'，则显示所有音色，忽略性别筛选
+  if (audioConfig.selectedLanguage === 'ALL') {
+    return betterShowCN(voiceList.value);
+  }
+  
   return betterShowCN(
     voiceList.value.filter((voice) => {
       const matchLanguage = voice.Name.startsWith(audioConfig.selectedLanguage)

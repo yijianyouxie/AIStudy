@@ -40,7 +40,10 @@ enum ErrorMessages {
  */
 export async function generateTTSStream(params: Required<EdgeSchema>, task: Task) {
   const { text, pitch, voice, rate, volume, useLLM } = params
-  const segment: Segment = { id: generateId(useLLM ? 'aigen-' : voice, text), text }
+  const segment: Segment = { 
+    id: generateId(useLLM ? 'aigen-' : voice, text, { pitch, rate, volume, voice }), 
+    text 
+  }
   const { lang, voiceList } = await getLangConfig(segment.text)
   logger.debug(`Language detected lang: `, lang)
   task!.context!.segment = segment

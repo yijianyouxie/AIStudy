@@ -168,18 +168,24 @@ function formatTime(ms: number): string {
  * @returns SRT 格式的字符串
  */
 function convertToSrt(subtitles: Subtitle[]): string {
-  let srtContent = ''
+  // 确保 subtitles 是一个数组，如果不是则使用空数组
+  if (!Array.isArray(subtitles)) {
+    logger.warn('Subtitles data is not an array, using empty array instead');
+    subtitles = [];
+  }
+
+  let srtContent = '';
 
   subtitles.forEach((subtitle, index) => {
-    const startTime = formatTime(subtitle.start)
-    const endTime = formatTime(subtitle.end)
+    const startTime = formatTime(subtitle.start);
+    const endTime = formatTime(subtitle.end);
 
-    srtContent += `${index + 1}\n`
-    srtContent += `${startTime} --> ${endTime}\n`
-    srtContent += `${subtitle.part}\n\n`
-  })
+    srtContent += `${index + 1}\n`;
+    srtContent += `${startTime} --> ${endTime}\n`;
+    srtContent += `${subtitle.part}\n\n`;
+  });
 
-  return srtContent
+  return srtContent;
 }
 
 export const jsonToSrt = async (jsonPath: string) => {

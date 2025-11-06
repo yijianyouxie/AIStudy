@@ -85,9 +85,19 @@ export async function asyncSleep(delay = 200) {
 /**
  * 生成稳定ID，不包含时间戳
  */
-export function generateId(prefix: string, text: string): string {
+export function generateId(prefix: string, text: string, params?: { pitch?: string; rate?: string; volume?: string; voice?: string }): string {
   const hash = createHash('md5')
   hash.update(text)
+  
+  // 如果提供了参数，则也将它们包含在哈希计算中
+  if (params) {
+    const { pitch, rate, volume, voice } = params
+    if (pitch) hash.update(pitch)
+    if (rate) hash.update(rate)
+    if (volume) hash.update(volume)
+    if (voice) hash.update(voice)
+  }
+  
   const textHash = hash.digest('hex').substring(0, 8)
   return `${prefix}-${textHash}.wav`
 }
