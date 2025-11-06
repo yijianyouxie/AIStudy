@@ -295,9 +295,8 @@ async function runConcurrentTasks(tasks: (() => Promise<any>)[], limit: number):
  * 验证语言和语音参数
  */
 function validateLangAndVoice(lang: string, voice: string): void {
-  if (lang !== 'eng' && voice.startsWith('en')) {
-    throw new Error(ErrorMessages.ENG_MODEL_INVALID_TEXT)
-  }
+  // 移除对英文语音的限制，允许任何语言的文本使用英文语音
+
 }
 
 /**

@@ -683,6 +683,8 @@ async function runConcurrentTasks(tasks: (() => Promise<any>)[], limit: number):
  * 验证语言和语音参数
  */
 function validateLangAndVoice(lang: string, voice: string, res: Response): boolean {
+  // 移除对英文语音的限制，允许任何语言的文本使用英文语音
+  /*
   if (lang !== 'eng' && voice.startsWith('en')) {
     res.status(400).send({
       code: 400,
@@ -691,6 +693,7 @@ function validateLangAndVoice(lang: string, voice: string, res: Response): boole
     })
     return false
   }
+  */
   return true
 }
 
