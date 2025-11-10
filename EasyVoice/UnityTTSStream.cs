@@ -5,13 +5,29 @@ using System.IO;
 using UnityEngine;
 using UnityEngine.Networking;
 
+#if UNITY_2019_1_OR_NEWER
+/// <summary>
+/// Custom certificate handler to accept self-signed certificates
+/// </summary>
+public class CustomCertificateHandler : CertificateHandler
+{
+    protected override bool ValidateCertificate(byte[] certificateData)
+    {
+        // In production, you should implement proper certificate validation
+        // For self-signed certificates in development, we accept all
+        return true;
+    }
+}
+
+#endif
+
 /// <summary>
 /// Unity script for streaming TTS from EasyVoice service
 /// </summary>
 public class UnityTTSStream : MonoBehaviour
 {
     [Header("Service Configuration")]
-    public string ttsServiceUrl = "http://localhost:3000/api/v1/tts"; // Base URL of EasyVoice service
+    public string ttsServiceUrl = "https://8.131.145.224/api/v1/tts"; // Base URL of EasyVoice service
     public string voice = "zh-CN-XiaoxiaoNeural"; // Default voice
     public string rate = "+0%"; // Speech rate
     public string volume = "+0%"; // Volume level
@@ -27,6 +43,9 @@ public class UnityTTSStream : MonoBehaviour
     
     private AudioSource audioSource;
     private bool isPlaying = false;
+
+    public delegate void UpdateStatusHandler(string text);
+    private UpdateStatusHandler updateStatusHandler;
     
     void Start()
     {
@@ -44,12 +63,22 @@ public class UnityTTSStream : MonoBehaviour
         // 检查音频系统状态
         CheckAudioSystemStatus();
     }
+
+    private void UpdateStatus(string text)
+    {
+        if(null != updateStatusHandler)
+        {
+            updateStatusHandler(text);
+        }
+    }
     
     /// <summary>
     /// Start streaming TTS from the service
     /// </summary>
-    public void StartTTSStreaming()
+    public void StartTTSStreaming(UpdateStatusHandler handler)
     {
+        updateStatusHandler = handler;
+
         // 检查待转换文本是否为空
         if (string.IsNullOrEmpty(textToConvert))
         {
@@ -134,50 +163,103 @@ public class UnityTTSStream : MonoBehaviour
             request.SetRequestHeader("Content-Type", "application/json");
             request.timeout = 300; // 5 minutes timeout
             
+#if UNITY_2019_1_OR_NEWER
+            // Add custom certificate handler for self-signed certificates
+            request.certificateHandler = new CustomCertificateHandler();
+#endif
+            
             Debug.Log("Starting TTS stream request...");
             
             // Send the request
             UnityWebRequestAsyncOperation operation = request.SendWebRequest();
-            
+
             // Wait for the request to complete or for headers to be received
             while (!operation.isDone && request.downloadedBytes < 1024)
             {
                 yield return null;
             }
             
-            // Log response headers
-            Debug.Log("Response headers:");
-            Dictionary<string, string> responseHeaders = request.GetResponseHeaders();
-            if (responseHeaders != null)
+            // Log response headers with improved error handling
+            Debug.Log("Response code: " + request.responseCode);
+            try 
             {
-                foreach (var header in responseHeaders.Keys)
+                Debug.Log("Response headers:");
+                Dictionary<string, string> responseHeaders = request.GetResponseHeaders();
+                if (responseHeaders != null)
                 {
-                    Debug.Log("  " + header + ": " + request.GetResponseHeader(header));
+                    foreach (var header in responseHeaders.Keys)
+                    {
+                        Debug.Log("  " + header + ": " + request.GetResponseHeader(header));
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning("  No response headers available (this may be normal on mobile platforms)");
                 }
             }
-            else
+            catch (Exception e)
             {
-                Debug.Log("  No response headers available");
+                UpdateStatus("Could not retrieve response headers: " + e.Message + " (this may be normal on mobile platforms)");
+                Debug.LogWarning("Could not retrieve response headers: " + e.Message + " (this may be normal on mobile platforms)");
             }
             
-            // Check for errors
-            // 使用兼容性检查方式替代 request.result
+            // Check for errors with improved mobile compatibility
+            bool hasError = false;
+            string errorMessage = "";
+            
 #if UNITY_2020_1_OR_NEWER
             if (request.result != UnityWebRequest.Result.Success)
             {
-                Debug.LogError("TTS Stream Error: " + request.error);
-                isPlaying = false;
-                yield break;
+                hasError = true;
+                errorMessage = "TTS Stream Error: " + request.error + " Result:" + request.result;
             }
 #else
             if (request.isHttpError || request.isNetworkError)
             {
-                Debug.LogError("TTS Stream Error: " + request.error);
-                isPlaying = false;
-                yield break;
+                hasError = true;
+                errorMessage = "TTS Stream Error: " + request.error + " isHttpError:" + request.isHttpError + " isNetworkError:" + request.isNetworkError + " ResponseCode:" + request.responseCode;
             }
 #endif
             
+            // Additional error checking for mobile platforms
+            if (request.responseCode >= 400) 
+            {
+                hasError = true;
+                errorMessage = "HTTP Error " + request.responseCode + ": " + request.error;
+            }
+            
+            // Log detailed error information
+            if (hasError) 
+            {
+                Debug.LogError(errorMessage);
+                UpdateStatus(errorMessage);
+                Debug.LogError("Request URL: " + streamUrl);
+                Debug.LogError("Request timeout: " + request.timeout);
+                Debug.LogError("Downloaded bytes: " + request.downloadedBytes);
+                
+                // Log certificate handler information
+#if UNITY_2019_1_OR_NEWER
+                if (request.certificateHandler != null) 
+                {
+                    Debug.LogError("Certificate handler: " + request.certificateHandler.GetType().Name);
+                } 
+                else 
+                {
+                    Debug.LogError("No certificate handler");
+                }
+#else
+                Debug.LogError("Certificate handler not supported in this Unity version");
+#endif
+                
+                // Log redirect chain
+//#if UNITY_2019_1_OR_NEWER
+//                Debug.LogError("Redirect count: " + request.redirectChain.Length);
+//#endif
+                
+                isPlaying = false;
+                yield break;
+            }
+
             Debug.Log("TTS stream started successfully. Response code: " + request.responseCode);
             
             // Wait for the audio clip to be ready
@@ -186,357 +268,245 @@ public class UnityTTSStream : MonoBehaviour
                 yield return null;
             }
             
-            // Check if we still have a valid request
-            // 使用兼容性检查方式替代 request.result
+            // Final error check
+            hasError = false;
 #if UNITY_2020_1_OR_NEWER
-            if (request.result == UnityWebRequest.Result.Success)
-#else
-            if (!request.isHttpError && !request.isNetworkError)
-#endif
+            if (request.result != UnityWebRequest.Result.Success)
             {
-                // 获取音频数据
-                byte[] audioData = request.downloadHandler.data;
-                Debug.Log("Received audio data with length: " + (audioData != null ? audioData.Length : 0) + " bytes");
-                Debug.Log("Content-Type header: " + request.GetResponseHeader("Content-Type"));
-                
-                // 检查是否返回了错误信息而不是音频数据
-                if (audioData != null && audioData.Length > 0)
+                hasError = true;
+                errorMessage = "TTS Stream Error: " + request.error;
+            }
+#else
+            if (request.isHttpError || request.isNetworkError)
+            {
+                hasError = true;
+                errorMessage = "TTS Stream Error: " + request.error;
+            }
+#endif
+            
+            if (request.responseCode >= 400) 
+            {
+                hasError = true;
+                errorMessage = "HTTP Error " + request.responseCode + ": " + request.error;
+            }
+            
+            if (hasError)
+            {
+                Debug.LogError(errorMessage);
+                isPlaying = false;
+                yield break;
+            }
+            
+            // 获取音频数据
+            byte[] audioData = request.downloadHandler.data;
+            Debug.Log("Received audio data with length: " + (audioData != null ? audioData.Length : 0) + " bytes");
+            
+            // 尝试获取Content-Type头部
+            string contentType = "";
+            try 
+            {
+                contentType = request.GetResponseHeader("Content-Type");
+                Debug.Log("Content-Type header: " + contentType);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("Could not get Content-Type header: " + e.Message);
+            }
+            
+            // 检查是否返回了错误信息而不是音频数据
+            if (audioData != null && audioData.Length > 0)
+            {
+                // 尝试将前100个字节解析为文本，检查是否是错误消息
+                try
                 {
-                    // 尝试将前100个字节解析为文本，检查是否是错误消息
+                    int checkLength = Math.Min(100, audioData.Length);
+                    string textCheck = System.Text.Encoding.UTF8.GetString(audioData, 0, checkLength);
+                    if (textCheck.Contains("error") || textCheck.Contains("Error") || textCheck.Contains("ERROR") ||
+                        textCheck.Contains("exception") || textCheck.Contains("Exception") || textCheck.Contains("EXCEPTION") ||
+                        textCheck.Contains("<html") || textCheck.Contains("<!DOCTYPE") || textCheck.Contains("404") ||
+                        textCheck.Contains("500") || textCheck.Contains("Not Found"))
+                    {
+                        Debug.LogError("Server may have returned an error page instead of audio data. First 100 chars: " + textCheck);
+                        isPlaying = false;
+                        yield break;
+                    }
+                }
+                catch (Exception e)
+                {
+                    // 忽略解析错误，继续处理
+                    Debug.Log("Could not parse response as text: " + e.Message);
+                }
+            }
+            
+            // 增强的空数据检查：确保数据不为空且长度大于0
+            if (audioData == null || audioData.Length == 0)
+            {
+                Debug.LogError("Received empty or null audio data from server");
+                isPlaying = false;
+                yield break;
+            }
+            
+            // 显示前几个字节以便识别格式
+            string firstBytesString = "";
+            string firstBytesHex = "";
+            int bytesToShow = Math.Min(32, audioData.Length);
+            for (int i = 0; i < bytesToShow; i++)
+            {
+                // 只显示可打印字符
+                if (audioData[i] >= 32 && audioData[i] <= 126)
+                {
+                    firstBytesString += (char)audioData[i];
+                }
+                else
+                {
+                    firstBytesString += ".";
+                }
+                firstBytesHex += audioData[i].ToString("X2") + " ";
+            }
+            Debug.Log("First " + bytesToShow + " bytes as string: " + firstBytesString);
+            Debug.Log("First " + bytesToShow + " bytes as hex: " + firstBytesHex);
+            
+            // 自动检测音频类型
+            AudioType detectedAudioType = DetectAudioType(audioData);
+            string fileExtension = detectedAudioType == AudioType.WAV ? ".wav" : ".mp3";
+            Debug.Log("Detected audio type: " + detectedAudioType + " with extension: " + fileExtension);
+            
+            // 如果我们强制使用WAV但检测到的不是WAV，记录警告
+            if (forceWavFormat && detectedAudioType != AudioType.WAV) {
+                Debug.LogWarning("Server audio data appears to be " + (detectedAudioType == AudioType.MPEG ? "MP3" : "non-WAV") + 
+                               " format, but forcing WAV processing as configured");
+            }
+            
+            // 尝试多种方法加载音频
+            AudioClip clip = null;
+            string tempFileName = "temp_tts_audio" + (forceWavFormat ? ".wav" : fileExtension); // 根据配置使用正确的扩展名
+            string tempFilePath = Path.Combine(Application.temporaryCachePath, tempFileName);
+            File.WriteAllBytes(tempFilePath, audioData);
+            
+            Debug.Log("Saved audio data to temporary file: " + tempFilePath);
+            Debug.Log("File exists: " + File.Exists(tempFilePath) + ", File size: " + 
+                     (File.Exists(tempFilePath) ? new FileInfo(tempFilePath).Length : 0) + " bytes");
+            
+            // 尝试使用不同的音频类型加载
+            AudioType[] audioTypesToTry = forceWavFormat ? new AudioType[] { AudioType.WAV } : new AudioType[] { AudioType.WAV, AudioType.MPEG };
+            string[] extensionsToTry = forceWavFormat ? new string[] { ".wav" } : new string[] { ".wav", ".mp3" };
+            
+            for (int i = 0; i < audioTypesToTry.Length; i++)
+            {
+                if (clip != null) break; // 如果已经成功加载，跳出循环
+                
+                AudioType typeToTry = audioTypesToTry[i];
+                string extensionToTry = extensionsToTry[i];
+                
+                // 如果不是默认文件名，重命名文件
+                if (extensionToTry != (forceWavFormat ? ".wav" : fileExtension))
+                {
+                    string newFilePath = Path.Combine(Application.temporaryCachePath, "temp_tts_audio" + extensionToTry);
                     try
                     {
-                        int checkLength = Math.Min(100, audioData.Length);
-                        string textCheck = System.Text.Encoding.UTF8.GetString(audioData, 0, checkLength);
-                        if (textCheck.Contains("error") || textCheck.Contains("Error") || textCheck.Contains("ERROR") ||
-                            textCheck.Contains("exception") || textCheck.Contains("Exception") || textCheck.Contains("EXCEPTION") ||
-                            textCheck.Contains("<html") || textCheck.Contains("<!DOCTYPE") || textCheck.Contains("404") ||
-                            textCheck.Contains("500") || textCheck.Contains("Not Found"))
-                        {
-                            Debug.LogError("Server may have returned an error page instead of audio data. First 100 chars: " + textCheck);
-                            Debug.LogError("Full response headers:");
-                            Dictionary<string, string> headers = request.GetResponseHeaders();
-                            if (headers != null)
-                            {
-                                foreach (string key in headers.Keys)
-                                {
-                                    Debug.LogError("  " + key + ": " + headers[key]);
-                                }
-                            }
-                            isPlaying = false;
-                            yield break;
-                        }
+                        if (File.Exists(newFilePath)) File.Delete(newFilePath);
+                        File.Copy(tempFilePath, newFilePath);
+                        tempFilePath = newFilePath;
                     }
                     catch (Exception e)
                     {
-                        // 忽略解析错误，继续处理
-                        Debug.Log("Could not parse response as text: " + e.Message);
+                        Debug.LogWarning("Could not rename temporary file: " + e.Message);
+                        continue;
                     }
                 }
                 
-                // 增强的空数据检查：确保数据不为空且长度大于0
-                if (audioData == null || audioData.Length == 0)
+                // 使用WWW加载音频（在某些平台上更稳定）
+                string fileUrl = "file:///" + tempFilePath.Replace("\\", "/");
+                using (WWW www = new WWW(fileUrl))
                 {
-                    Debug.LogError("Received empty or null audio data from server");
-                    isPlaying = false;
-                    yield break;
-                }
-                
-                // 显示前几个字节以便识别格式
-                string firstBytesString = "";
-                string firstBytesHex = "";
-                int bytesToShow = Math.Min(32, audioData.Length);
-                for (int i = 0; i < bytesToShow; i++)
-                {
-                    // 只显示可打印字符
-                    if (audioData[i] >= 32 && audioData[i] <= 126)
+                    yield return www;
+                    
+                    if (string.IsNullOrEmpty(www.error))
                     {
-                        firstBytesString += (char)audioData[i];
+                        clip = www.GetAudioClip(false, false, typeToTry);
+                        if (clip != null)
+                        {
+                            Debug.Log("Successfully loaded audio clip with WWW loader, type: " + typeToTry);
+                        }
+                        else
+                        {
+                            Debug.LogWarning("WWW loader returned null clip for type: " + typeToTry);
+                        }
                     }
                     else
                     {
-                        firstBytesString += ".";
+                        Debug.LogWarning("WWW loader error for type " + typeToTry + ": " + www.error);
                     }
-                    firstBytesHex += audioData[i].ToString("X2") + " ";
                 }
-                Debug.Log("First " + bytesToShow + " bytes as string: " + firstBytesString);
-                Debug.Log("First " + bytesToShow + " bytes as hex: " + firstBytesHex);
-                
-                // 自动检测音频类型
-                AudioType detectedAudioType = DetectAudioType(audioData);
-                string fileExtension = detectedAudioType == AudioType.WAV ? ".wav" : ".mp3";
-                Debug.Log("Detected audio type: " + detectedAudioType + " with extension: " + fileExtension);
-                
-                // 如果我们强制使用WAV但检测到的不是WAV，记录警告
-                if (forceWavFormat && detectedAudioType != AudioType.WAV) {
-                    Debug.LogWarning("Server audio data appears to be " + (detectedAudioType == AudioType.MPEG ? "MP3" : "non-WAV") + 
-                                   " format, but forcing WAV processing as configured");
-                }
-                
-                // 尝试多种方法加载音频
-                AudioClip clip = null;
-                string tempFileName = "temp_tts_audio" + (forceWavFormat ? ".wav" : fileExtension); // 根据配置使用正确的扩展名
-                string tempFilePath = Path.Combine(Application.temporaryCachePath, tempFileName);
-                File.WriteAllBytes(tempFilePath, audioData);
-                
-                Debug.Log("Saved audio data to temporary file: " + tempFilePath);
-                Debug.Log("File exists: " + File.Exists(tempFilePath) + ", File size: " + 
-                         (File.Exists(tempFilePath) ? new FileInfo(tempFilePath).Length : 0) + " bytes");
-                
-                // 尝试使用不同的音频类型加载
-                AudioType[] audioTypesToTry = forceWavFormat ? new AudioType[] { AudioType.WAV } : new AudioType[] { AudioType.WAV, AudioType.MPEG };
-                string[] extensionsToTry = forceWavFormat ? new string[] { ".wav" } : new string[] { ".wav", ".mp3" };
-                
-                for (int i = 0; i < audioTypesToTry.Length; i++)
+            }
+            
+            // 如果WWW加载失败，尝试使用UnityWebRequest加载
+            if (clip == null)
+            {
+                Debug.Log("Trying UnityWebRequest to load audio clip...");
+                string fileUrl = "file:///" + tempFilePath.Replace("\\", "/");
+                using (UnityWebRequest audioRequest = UnityWebRequestMultimedia.GetAudioClip(fileUrl, forceWavFormat ? AudioType.WAV : AudioType.MPEG))
                 {
-                    if (clip != null) break; // 如果已经成功加载，跳出循环
+                    yield return audioRequest.SendWebRequest();
                     
-                    AudioType typeToTry = audioTypesToTry[i];
-                    string extensionToTry = extensionsToTry[i];
-                    
-                    // 如果不是默认文件名，重命名文件
-                    if (extensionToTry != (forceWavFormat ? ".wav" : fileExtension))
-                    {
-                        string newFilePath = Path.Combine(Application.temporaryCachePath, "temp_tts_audio" + extensionToTry);
-                        try
-                        {
-                            File.Copy(tempFilePath, newFilePath, true);
-                            tempFilePath = newFilePath;
-                        }
-                        catch (Exception e)
-                        {
-                            Debug.LogWarning("Failed to rename file to " + extensionToTry + ": " + e.Message);
-                            continue;
-                        }
-                    }
-                    
-                    // 尝试使用UnityWebRequestMultimedia加载
-                    using (UnityWebRequest audioRequest = UnityWebRequestMultimedia.GetAudioClip("file:///" + tempFilePath.Replace("\\", "/"), typeToTry))
-                    {
-                        Debug.Log("Attempting to load audio clip using UnityWebRequestMultimedia with type: " + typeToTry);
-                        yield return audioRequest.SendWebRequest();
-                        
+                    bool requestSuccess = false;
 #if UNITY_2020_1_OR_NEWER
-                        if (audioRequest.result == UnityWebRequest.Result.Success)
+                    requestSuccess = (audioRequest.result == UnityWebRequest.Result.Success);
 #else
-                        if (!audioRequest.isHttpError && !audioRequest.isNetworkError)
+                    requestSuccess = (!audioRequest.isHttpError && !audioRequest.isNetworkError);
 #endif
+                    
+                    if (requestSuccess)
+                    {
+                        clip = DownloadHandlerAudioClip.GetContent(audioRequest);
+                        if (clip != null)
                         {
-                            try
-                            {
-                                clip = DownloadHandlerAudioClip.GetContent(audioRequest);
-                                Debug.Log("UnityWebRequestMultimedia with " + typeToTry + " - AudioClip loaded: " + (clip != null));
-                                if (clip != null) {
-                                    Debug.Log("Clip length: " + clip.length + " seconds, Samples: " + clip.samples + ", Channels: " + clip.channels + ", Frequency: " + clip.frequency);
-                                    if (clip.length <= 0 || clip.samples <= 0)
-                                    {
-                                        Debug.LogWarning("Loaded clip has invalid properties, trying next format");
-                                        clip = null;
-                                    }
-                                } else {
-                                    Debug.LogError("Clip is null after UnityWebRequestMultimedia with " + typeToTry);
-                                }
-                            }
-                            catch (Exception e)
-                            {
-                                Debug.LogWarning("Exception when getting content with " + typeToTry + ": " + e.Message);
-                                clip = null;
-                            }
+                            Debug.Log("Successfully loaded audio clip with UnityWebRequest");
                         }
                         else
                         {
-                            Debug.LogWarning("UnityWebRequestMultimedia with " + typeToTry + " failed: " + audioRequest.error);
+                            Debug.LogWarning("UnityWebRequest loader returned null clip");
                         }
+                    }
+                    else
+                    {
+                        Debug.LogError("UnityWebRequest loader error: " + audioRequest.error);
                     }
                 }
-                
-                // 如果所有UnityWebRequestMultimedia方法都失败，尝试使用WWW类（兼容性更好）
-                if (clip == null)
-                {
-                    Debug.Log("All UnityWebRequestMultimedia methods failed, trying fallback with different formats");
-#if !UNITY_2020_1_OR_NEWER
-                    // 重新设置到原始文件
-                    tempFilePath = Path.Combine(Application.temporaryCachePath, "temp_tts_audio" + (forceWavFormat ? ".wav" : fileExtension));
-                    string fileUrl = "file:///" + tempFilePath.Replace("\\", "/");
-                    
-                    // 先尝试WAV格式
-                    using (WWW www = new WWW(fileUrl))
-                    {
-                        yield return www;
-                            
-                        if (string.IsNullOrEmpty(www.error))
-                        {
-                            clip = www.GetAudioClip(false, false, AudioType.WAV);
-                            Debug.Log("WWW - Attempting WAV format - AudioClip loaded: " + (clip != null));
-                            if (clip != null) {
-                                Debug.Log("Clip length: " + clip.length + " seconds, Samples: " + clip.samples + ", Channels: " + clip.channels + ", Frequency: " + clip.frequency);
-                            } else {
-                                Debug.LogError("Clip is null after WWW method with WAV");
-                            }
-                        }
-                        else
-                        {
-                            Debug.LogWarning("WWW method failed with WAV: " + www.error);
-                        }
-                    }
-                    
-                    // 如果WAV失败，尝试MP3格式
-                    if (clip == null && !forceWavFormat)
-                    {
-                        string mp3FilePath = Path.Combine(Application.temporaryCachePath, "temp_tts_audio.mp3");
-                        if (File.Exists(mp3FilePath))
-                        {
-                            string mp3Url = "file:///" + mp3FilePath.Replace("\\", "/");
-                            using (WWW www = new WWW(mp3Url))
-                            {
-                                yield return www;
-                                    
-                                if (string.IsNullOrEmpty(www.error))
-                                {
-                                    clip = www.GetAudioClip(false, false, AudioType.MPEG);
-                                    Debug.Log("WWW - Attempting MP3 format - AudioClip loaded: " + (clip != null));
-                                    if (clip != null) {
-                                        Debug.Log("Clip length: " + clip.length + " seconds, Samples: " + clip.samples + ", Channels: " + clip.channels + ", Frequency: " + clip.frequency);
-                                    } else {
-                                        Debug.LogError("Clip is null after WWW method with MP3");
-                                    }
-                                }
-                                else
-                                {
-                                    Debug.LogWarning("WWW method failed with MP3: " + www.error);
-                                }
-                            }
-                        }
-                    }
-#endif
-                }
-                
-                // 不再删除临时文件，保留文件供手动检查
-                // 记录文件位置，方便用户检查生成的音频文件
+            }
+
+            // 清理临时文件
+            try
+            {
                 if (File.Exists(tempFilePath))
                 {
-                    Debug.Log("Audio file saved for manual inspection at: " + tempFilePath);
+                    File.Delete(tempFilePath);
                 }
-                    
-                    // 检查是否成功加载音频
-                    if (clip != null && clip.samples > 0)
-                    {
-                        Debug.Log("Audio clip loaded successfully. Duration: " + clip.length + " seconds, Samples: " + clip.samples + ", Channels: " + clip.channels + ", Frequency: " + clip.frequency);
-                        
-                        // 确保AudioSource存在并且启用
-                        if (audioSource == null)
-                        {
-                            audioSource = gameObject.GetComponent<AudioSource>();
-                            if (audioSource == null)
-                            {
-                                audioSource = gameObject.AddComponent<AudioSource>();
-                            }
-                        }
-                        
-                        // 检查GameObject和AudioSource状态
-                        Debug.Log("GameObject active in hierarchy: " + gameObject.activeInHierarchy);
-                        Debug.Log("AudioSource component: " + (audioSource != null));
-                        if (audioSource != null) {
-                            Debug.Log("AudioSource enabled: " + audioSource.enabled);
-                            Debug.Log("AudioSource mute: " + audioSource.mute);
-                            Debug.Log("AudioSource volume: " + audioSource.volume);
-                        }
-                        
-                        // 强制设置AudioSource属性
-                        audioSource.playOnAwake = false;
-                        audioSource.loop = false;
-                        audioSource.mute = false;
-                        audioSource.volume = 1.0f;
-                        
-                        Debug.Log("About to play audio...");
-                        
-                        // 尝试使用PlayOneShot直接播放（这是最可靠的方法之一）
-                        try 
-                        {
-                            audioSource.PlayOneShot(clip);
-                            Debug.Log("AudioSource.PlayOneShot() called. isPlaying: " + audioSource.isPlaying);
-                        }
-                        catch (Exception e)
-                        {
-                            Debug.LogError("Exception when calling audioSource.PlayOneShot(): " + e.Message);
-                        }
-                        
-                        // 如果PlayOneShot失败，尝试标准播放方法
-                        if (!audioSource.isPlaying)
-                        {
-                            try
-                            {
-                                audioSource.clip = clip;
-                                audioSource.Play();
-                                Debug.Log("AudioSource.Play() called. isPlaying: " + audioSource.isPlaying);
-                            }
-                            catch (Exception e)
-                            {
-                                Debug.LogError("Exception when calling audioSource.Play(): " + e.Message);
-                            }
-                        }
-                        
-                        // 检查是否开始播放
-                        float startTime = Time.time;
-                        // 等待一小段时间确保播放状态更新
-                        for (int i = 0; i < 10 && !audioSource.isPlaying; i++)
-                        {
-                            yield return null;
-                        }
-                        
-                        if (audioSource.isPlaying)
-                        {
-                            Debug.Log("Audio started playing successfully");
-                        }
-                        else
-                        {
-                            Debug.LogError("Failed to start audio playback");
-                            
-                            // 输出更多诊断信息
-                            if (audioSource != null && audioSource.clip != null)
-                            {
-                                Debug.Log("Clip info - length: " + audioSource.clip.length + 
-                                         ", samples: " + audioSource.clip.samples + 
-                                         ", channels: " + audioSource.clip.channels + 
-                                         ", frequency: " + audioSource.clip.frequency);
-                            }
-                            
-                            // 尝试重新创建AudioSource
-                            Debug.Log("Recreating AudioSource component...");
-                            Destroy(audioSource);
-                            audioSource = gameObject.AddComponent<AudioSource>();
-                            audioSource.playOnAwake = false;
-                            audioSource.volume = 1.0f;
-                            
-                            try
-                            {
-                                audioSource.PlayOneShot(clip);
-                                Debug.Log("Recreated AudioSource and called PlayOneShot(). isPlaying: " + audioSource.isPlaying);
-                            }
-                            catch (Exception e)
-                            {
-                                Debug.LogError("Exception with recreated AudioSource: " + e.Message);
-                            }
-                        }
-                        
-                        // Wait for playback to complete
-                        if (audioSource.isPlaying)
-                        {
-                            float timeout = Time.time + clip.length + 1.0f; // 添加1秒的超时时间
-                            while (audioSource.isPlaying && isPlaying && Time.time < timeout)
-                            {
-                                yield return null;
-                            }
-                            Debug.Log("Audio playback finished or timed out");
-                        }
-                    }
-                    else
-                    {
-                        Debug.LogError("Failed to create valid audio clip from downloaded data using all available methods");
-                    }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("Could not delete temporary file: " + e.Message);
+            }
+            
+            // 检查是否成功加载音频
+            if (clip != null)
+            {
+                Debug.Log("Audio clip loaded successfully. Duration: " + clip.length + " seconds, Samples: " + clip.samples);
+                audioSource.clip = clip;
+                audioSource.Play();
+                
+                // Wait for playback to complete
+                while (audioSource.isPlaying && isPlaying)
+                {
+                    yield return null;
+                }
+                
+                // 释放音频资源
+                Destroy(clip);
             }
             else
             {
-                Debug.LogError("TTS Stream Error: " + request.error);
+                Debug.LogError("Failed to load audio clip from response data");
             }
             
             isPlaying = false;

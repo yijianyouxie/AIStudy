@@ -1,0 +1,158 @@
+EasyVoice项目在阿里云上的部署过程
+1. 服务器环境准备
+1.1 系统环境
+阿里云ECS服务器（Ubuntu系统）
+公网IP地址：8.131.145.224
+1.2 软件安装
+bash
+# 更新包索引
+apt update
+
+# 安装必要的软件
+apt install -y curl wget git nginx ffmpeg
+
+# 安装Node.js
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+apt-get install -y nodejs
+
+# 安装pnpm包管理器
+npm install -g pnpm
+2. 下载项目代码
+由于项目位于GitHub仓库的子文件夹中，我们需要使用Sparse Checkout功能只下载EasyVoice文件夹：
+
+bash
+# 创建项目目录
+mkdir -p /root/AIStudy
+cd /root/AIStudy
+
+# 初始化Git仓库
+git init
+
+# 添加远程仓库
+git remote add origin https://github.com/yijianyouxie/AIStudy.git
+
+# 启用Sparse Checkout
+git sparse-checkout init --cone
+
+# 设置只下载EasyVoice文件夹
+git sparse-checkout set EasyVoice
+
+# 拉取代码
+git pull origin main
+或者，也可以使用svn命令来只下载特定子目录（如果服务器上安装了svn）：
+
+bash
+# 使用svn下载特定子目录
+svn export https://github.com/yijianyouxie/AIStudy/trunk/EasyVoice
+3. 项目部署
+3.1 进入项目目录
+bash
+cd /root/AIStudy/EasyVoice
+3.2 安装项目依赖
+bash
+pnpm install -r
+3.3 构建项目
+bash
+pnpm build
+4. SSL证书配置
+4.1 生成自签名SSL证书
+bash
+mkdir -p /etc/nginx/ssl
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt
+4.2 配置Nginx反向代理
+创建Nginx配置文件 /etc/nginx/sites-available/easyvoice：
+
+nginx
+server {
+    listen 80;
+    server_name 8.131.145.224;
+
+    # 重定向所有HTTP请求到HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name 8.131.145.224;
+
+    ssl_certificate /etc/nginx/ssl/nginx.crt;
+    ssl_certificate_key /etc/nginx/ssl/nginx.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    
+    # 增加客户端最大body大小，支持大文本上传
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_buffering off;
+    }
+}
+4.3 启用Nginx配置
+bash
+ln -sf /etc/nginx/sites-available/easyvoice /etc/nginx/sites-enabled/easyvoice
+nginx -t
+systemctl restart nginx
+5. 启动后端服务
+5.1 启动应用
+bash
+cd /root/AIStudy/EasyVoice
+pnpm start
+5.2 验证服务
+bash
+curl -I https://localhost
+6. Unity客户端配置
+6.1 修改Unity脚本中的服务URL
+将Unity脚本中的服务URL从http://localhost:3000/api/v1/tts更改为https://8.131.145.224/api/v1/tts：
+
+UnityTTSStream.cs
+UnityTTSAdvancedStream.cs
+UnityTTSExample.cs中的初始化部分
+7. 遇到的问题及解决方案
+7.1 Nginx配置问题
+问题：Nginx配置文件中存在错误的转义字符 解决方案：重新创建正确的Nginx配置文件，避免使用错误的转义字符
+
+7.2 HTTP/HTTPS混合内容问题
+问题：前端和Unity客户端之前为了HTTP访问做出的修改导致HTTPS下功能异常 解决方案：恢复所有为支持HTTP访问而做的修改，统一使用HTTPS
+
+7.3 项目配置还原
+问题：为了HTTP访问修改了多个配置文件 解决方案：使用git checkout -- .命令还原所有修改，保持代码库整洁
+
+7.4 音频格式处理问题
+问题：Unity对MP3格式支持不完善 解决方案：服务端统一将音频转换为WAV格式输出
+
+8. 最终验证
+8.1 服务验证
+HTTP访问自动重定向到HTTPS
+HTTPS访问正常工作
+后端服务正常运行在3000端口
+Nginx反向代理配置正确
+8.2 功能验证
+Web界面正常访问
+文本转语音功能正常
+流式传输功能正常
+Unity客户端可以正常连接并使用服务
+9. 生产环境建议
+9.1 使用PM2管理进程
+建议安装PM2来管理Node.js应用进程：
+
+bash
+npm install -g pm2
+9.2 设置开机自启
+使用PM2设置服务开机自启：
+
+bash
+pm2 startup
+pm2 save
+9.3 使用生产SSL证书
+在生产环境中，建议使用Let's Encrypt等受信任的SSL证书替代自签名证书。
+
+以上就是完整的EasyVoice项目在阿里云上的部署过程和步骤。通过这个过程，我们成功地将项目部署到云服务器上，并通过HTTPS提供安全的访问。

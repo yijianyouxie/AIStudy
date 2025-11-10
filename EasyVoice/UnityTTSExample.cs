@@ -35,6 +35,34 @@ public class UnityTTSExample : MonoBehaviour
     {
         SetupUI();
         UpdateStatus("Ready to convert text to speech");
+        
+        // 确保在移动平台上设置正确的URL
+#if UNITY_ANDROID || UNITY_IOS
+        if (ttsStream != null)
+        {
+            // 在移动设备上使用HTTPS URL
+            ttsStream.ttsServiceUrl = "https://8.131.145.224/api/v1/tts";
+        }
+        
+        if (ttsAdvancedStream != null)
+        {
+            // 在移动设备上使用HTTPS URL
+            ttsAdvancedStream.ttsServiceUrl = "https://8.131.145.224/api/v1/tts";
+        }
+#else
+        // 在编辑器中可以使用本地URL进行测试
+        if (ttsStream != null && string.IsNullOrEmpty(ttsStream.ttsServiceUrl))
+        {
+            ttsStream.ttsServiceUrl = "https://8.131.145.224/api/v1/tts";
+        }
+        
+        if (ttsAdvancedStream != null && string.IsNullOrEmpty(ttsAdvancedStream.ttsServiceUrl))
+        {
+            ttsAdvancedStream.ttsServiceUrl = "https://8.131.145.224/api/v1/tts";
+        }
+#endif
+        
+        Debug.Log("TTS Example initialized. Platform: " + Application.platform);
     }
     
     private void SetupUI()
@@ -73,7 +101,7 @@ public class UnityTTSExample : MonoBehaviour
         UpdateStatus("Converting text to speech...");
         
         // Start streaming
-        ttsStream.StartTTSStreaming();
+        ttsStream.StartTTSStreaming(UpdateStatus);
     }
     
     private void OnStopButtonClicked()
@@ -116,7 +144,7 @@ public class UnityTTSExample : MonoBehaviour
     {
         if (statusText != null)
         {
-            statusText.text = message;
+            statusText.text += "\n" + message;
         }
     }
     

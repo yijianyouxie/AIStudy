@@ -250,3 +250,51 @@ info: POST /api/v1/tts/createStream 409 3ms {"meta":{},"timestamp":"2025-11-03T0
 ### 是流式的，不是边生成边转换，服务器段的缓存音频在backend/audio目录下。
 ## 2025-11-03 解决文件名和字幕文件生成问题。
 ## 2025-11-03 文本较长需要多段生成时报错的解决。
+## 2025-11-04 阿里云服务器部署；一开始是http来访问，有各种错误，然后换成了https，成功访问。用到了nginx和自签名的ssl证书。
+### 自签名证书的生成：ssh root@8.131.145.224 "mkdir -p /etc/nginx/ssl && openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/nginx/ssl/nginx.key -out /etc/nginx/ssl/nginx.crt -subj '/C=US/ST=State/L=City/O=Organization/CN=8.131.145.224'"
+### Nginx配置文件来设置反向代理：/etc/nginx/sites-available/easyvoice：
+server {
+    listen 80;
+    server_name 8.131.145.224;
+
+    # 閲嶅畾鍚戞墍鏈塇TTP璇锋眰鍒癏TTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name 8.131.145.224;
+
+    ssl_certificate /etc/nginx/ssl/nginx.crt;
+    ssl_certificate_key /etc/nginx/ssl/nginx.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    
+    # 澧炲姞瀹㈡埛绔渶澶ody澶у皬锛屾敮鎸佸ぇ鏂囨湰涓婁紶
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_buffering off;
+    }
+}
+这个内容也是easyvoice/nginx.conf这个文件的内容。
+### 启动Nginx:ssh root@8.131.145.224 "systemctl restart nginx && systemctl status nginx"
+## 2025-11-05;开始使用Unity手机包测试：出现问题了，手机上没有声音，有报错：
+### 1，使用Unity 2017.4.31f1时无法播放音频，通过打印日志发现response.statusCode为0，无法获取音频数据。
+### 2，但是在ios的浏览器上可以正常访问并生成声音。在android的浏览器上能正常访问网站，但是提示生成音频后，无法进行播放。
+### 3，开始以为是ssl证书的问题，开始捣鼓各种证书，通过各种脚本生成各种证书文件，还拷贝到Android手机上，安装后信任。怎么还要安装到系统里的信任证书才行等等。
+### 4，2025-11-10；今天实验了付费域名。因为ssl证书是自签的，怀疑是这个原因导致无法通过浏览器访问。域名配置好后，又配置了ssl证书。
+### 5，但是这种情况下需要备案后才能在公网访问我的域名，所以尝试去备案，但是备案需要服务器有3个月及以上的有效期，考虑到服务器成本，放弃了这种方式。
+### 6，想到浏览器可以通过信任自签证书得以继续访问，难道Unity不信吗？其实在解决之前unity包无法访问网站的问题时就已经通过修改代码进行了支持，只不过，代码里是要大于2019版本
+### 才起作用。所以，更换Unity版本到2019.4.26后打包的时候提示ndk版本不对，最后下载的android-ndk-r19-windows-x86_64才成功打包。
+### 7，至此，通过Unity2019构建的Android包，可以正常访问网站，生成音频，播放音频。
+## 2025-11-10；21407799_www.yijianyouxie.top_nginx.zip中的两个文件就是正式域名的ssl证书。
