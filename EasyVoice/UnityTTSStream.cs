@@ -27,7 +27,7 @@ public class CustomCertificateHandler : CertificateHandler
 public class UnityTTSStream : MonoBehaviour
 {
     [Header("Service Configuration")]
-    public string ttsServiceUrl = "https://8.131.145.224/api/v1/tts"; // Base URL of EasyVoice service
+    public string ttsServiceUrl = ""; // Base URL of EasyVoice service
     public string voice = "zh-CN-XiaoxiaoNeural"; // Default voice
     public string rate = "+0%"; // Speech rate
     public string volume = "+0%"; // Volume level
@@ -492,6 +492,7 @@ public class UnityTTSStream : MonoBehaviour
             if (clip != null)
             {
                 Debug.Log("Audio clip loaded successfully. Duration: " + clip.length + " seconds, Samples: " + clip.samples);
+                UpdateStatus("Audio clip loaded successfully. Duration: " + clip.length + " seconds, Samples: " + clip.samples);
                 audioSource.clip = clip;
                 audioSource.Play();
                 

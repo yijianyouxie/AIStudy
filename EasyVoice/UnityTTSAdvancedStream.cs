@@ -13,7 +13,7 @@ using UnityEngine.Networking;
 public class UnityTTSAdvancedStream : MonoBehaviour
 {
     [Header("Service Configuration")]
-    public string ttsServiceUrl = "https://8.131.145.224/api/v1/tts"; // Base URL of EasyVoice service
+    public string ttsServiceUrl = ""; // Base URL of EasyVoice service
     public string voice = "zh-CN-XiaoxiaoNeural"; // Default voice
     public string rate = "+0%"; // Speech rate
     public string volume = "+0%"; // Volume level
