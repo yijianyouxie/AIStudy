@@ -1,6 +1,7 @@
 import path, { resolve } from 'path'
 import { Response } from 'express'
-import fs, { readdir } from 'fs/promises'
+import fs, { readdir, access } from 'fs/promises'
+import { createReadStream } from 'fs'
 import ffmpeg from 'fluent-ffmpeg'
 import { AUDIO_DIR, STATIC_DOMAIN, EDGE_API_LIMIT } from '../config'
 import { logger } from '../utils/logger'
@@ -56,18 +57,114 @@ export async function generateTTSStream(params: Required<EdgeSchema>, task: Task
   const cacheKey = taskManager.generateTaskId({ text, pitch, voice, rate, volume })
   const cache = await audioCacheInstance.getAudio(cacheKey)
   if (cache) {
-    const data = {
-      ...cache,
-      file: path.parse(cache.audio).base,
-      srt: path.parse(cache.srt).base,
-      text: '',
+    logger.info(`Cache hit: ${voice} ${text.slice(0, 10)}`, { cacheKey, cache })
+    try {
+      // 从缓存中提取实际文件路径
+      let fullPath = cache.audio;
+      logger.info(`Original cached audio path: ${fullPath}`)
+      logger.info(`STATIC_DOMAIN: ${STATIC_DOMAIN}`)
+      logger.info(`AUDIO_DIR: ${AUDIO_DIR}`)
+      
+      // 如果是完整的URL（包含协议），提取路径部分
+      if (fullPath.startsWith('http://') || fullPath.startsWith('https://')) {
+        try {
+          const url = new URL(fullPath);
+          const pathname = url.pathname;
+          logger.info(`Extracted pathname from URL: ${pathname}`)
+          
+          // 移除开头的斜杠（如果有的话）
+          const cleanPath = pathname.startsWith('/') ? pathname.substring(1) : pathname;
+          logger.info(`Cleaned path: ${cleanPath}`)
+          
+          // 对路径进行解码，处理URL编码的字符
+          const decodedPath = decodeURIComponent(cleanPath);
+          logger.info(`Decoded path: ${decodedPath}`)
+          
+          // 构建完整路径
+          fullPath = path.resolve(AUDIO_DIR, decodedPath);
+          logger.info(`Constructed full path from URL: ${fullPath}`)
+        } catch (urlError) {
+          logger.error('Error parsing URL, falling back to basename extraction', urlError);
+          // 如果URL解析失败，直接提取文件名
+          const fileName = path.basename(fullPath);
+          logger.info(`Extracted filename as fallback: ${fileName}`);
+          // 对文件名进行解码
+          const decodedFileName = decodeURIComponent(fileName);
+          logger.info(`Decoded filename: ${decodedFileName}`);
+          fullPath = path.resolve(AUDIO_DIR, decodedFileName);
+          logger.info(`Constructed full path from filename: ${fullPath}`)
+        }
+      }
+      // 如果是相对路径，转换为绝对路径
+      else if (!path.isAbsolute(fullPath)) {
+        logger.info(`Converting relative path to absolute`)
+        // 对路径进行解码
+        const decodedPath = decodeURIComponent(fullPath);
+        logger.info(`Decoded relative path: ${decodedPath}`)
+        fullPath = path.resolve(AUDIO_DIR, decodedPath);
+        logger.info(`Converted full path: ${fullPath}`)
+      } else {
+        // fullPath已经是绝对路径，但仍需要解码
+        logger.info(`Using absolute path, decoding if needed`)
+        const decodedPath = decodeURIComponent(fullPath);
+        logger.info(`Decoded absolute path: ${decodedPath}`)
+        fullPath = decodedPath;
+        logger.info(`Using absolute path as-is: ${fullPath}`)
+      }
+      
+      logger.info(`Final resolved file path: ${fullPath}`)
+      
+      // 检查文件是否存在
+      try {
+        await access(fullPath)
+        logger.info(`Cached audio file exists: ${fullPath}`)
+      } catch (error) {
+        logger.error(`Cached audio file not found: ${fullPath}`, error)
+        
+        // 文件不存在，继续执行正常的生成流程而不是报错
+        logger.info('Cached file not found, continuing with normal generation');
+        throw error; // 抛出错误以继续正常的生成流程
+      }
+      
+      // 直接将缓存的音频文件流式传输给客户端
+      const fileStream = createReadStream(fullPath)
+      
+      // 设置响应头
+      task.context?.res?.setHeader('Content-Type', 'audio/mpeg')
+      task.context?.res?.setHeader('x-generate-tts-type', 'stream-cache')
+      task.context?.res?.setHeader('Access-Control-Expose-Headers', 'x-generate-tts-type, x-generate-tts-id')
+      
+      // 管道传输文件流到响应对象
+      fileStream.pipe(task.context?.res as Response)
+      
+      // 监听流完成事件
+      fileStream.on('end', () => {
+        logger.info(`Finished streaming cached file: ${fullPath}`)
+        task.endTask?.(task.id)
+      })
+      
+      // 监听流错误事件
+      fileStream.on('error', (err: NodeJS.ErrnoException) => {
+        logger.error('Error streaming cached audio:', err)
+        logger.error('Error stack:', err.stack)
+        if (!task.context?.res?.headersSent) {
+          task.context?.res?.status(500).json({ 
+            success: false, 
+            message: 'Error streaming cached audio',
+            error: err.message,
+            stack: err.stack
+          })
+        }
+        task.endTask?.(task.id)
+      })
+      
+      return
+    } catch (error) {
+      logger.error('Error handling cached audio:', error)
+      logger.error('Error stack:', (error as Error).stack)
+      // 出现错误时，继续执行正常的生成流程
+      logger.info('Error handling cache, continuing with normal generation');
     }
-    logger.info(`Cache hit: ${voice} ${text.slice(0, 10)}`)
-    task.context?.res?.setHeader('x-generate-tts-type', 'application/json')
-    task.context?.res?.setHeader('Access-Control-Expose-Headers', 'x-generate-tts-type')
-    task.context?.res?.json({ code: 200, data, success: true })
-    task.endTask?.(task.id)
-    return
   }
 
   if (useLLM) {
@@ -75,6 +172,38 @@ export async function generateTTSStream(params: Required<EdgeSchema>, task: Task
   } else {
     generateWithoutLLMStream({ ...params, output: segment.id }, task)
   }
+  
+  // 添加缓存保存逻辑
+  const originalEndTask = task.endTask;
+  task.endTask = (taskId: string) => {
+    // 先执行原有的结束任务逻辑
+    if (originalEndTask) {
+      originalEndTask(taskId);
+    }
+    
+    // 保存结果到缓存
+    const cacheKey = taskManager.generateTaskId({ text, pitch, voice, rate, volume, useLLM });
+    
+    const fileName = path.basename(segment.id, '.mp3');
+    const result = {
+      text,
+      pitch,
+      voice,
+      rate,
+      volume,
+      useLLM,
+      audio: `${STATIC_DOMAIN}/${fileName}.mp3`,
+      srt: `${STATIC_DOMAIN}/${fileName}.srt`
+    };
+    
+    audioCacheInstance.setAudio(cacheKey, result)
+      .then(() => {
+        logger.info(`Successfully cached result for ${voice} ${text.slice(0, 10)}`);
+      })
+      .catch((error) => {
+        logger.error(`Failed to cache result for ${voice} ${text.slice(0, 10)}:`, error);
+      });
+  };
 }
 export async function generateTTSStreamJson(formatedBody: Required<EdgeSchema>[], task: Task) {
   const { segment } = task.context as Required<NonNullable<Task['context']>>
@@ -219,6 +348,36 @@ async function buildSegment(params: TTSParams, task: Task, dir: string = '') {
       setTimeout(() => {
         handleSrt(output)
       }, 200)
+      
+      // 保存结果到缓存
+      const cacheKey = taskManager.generateTaskId({ 
+        text: segment.text,
+        pitch: params.pitch,
+        voice: params.voice,
+        rate: params.rate,
+        volume: params.volume,
+        useLLM: false
+      });
+      
+      const fileName = path.basename(segment.id, '.mp3');
+      const result = {
+        text: segment.text,
+        pitch: params.pitch,
+        voice: params.voice,
+        rate: params.rate,
+        volume: params.volume,
+        useLLM: false,
+        audio: `${STATIC_DOMAIN}/${fileName}.mp3`,
+        srt: `${STATIC_DOMAIN}/${fileName}.srt`
+      };
+      
+      audioCacheInstance.setAudio(cacheKey, result)
+        .then(() => {
+          logger.info(`Successfully cached segment result for ${params.voice} ${segment.text.slice(0, 10)}`);
+        })
+        .catch((error) => {
+          logger.error(`Failed to cache segment result for ${params.voice} ${segment.text.slice(0, 10)}:`, error);
+        });
     },
   })
 }
@@ -287,6 +446,40 @@ async function buildSegmentList(segments: BuildSegment[], task: Task): Promise<v
     if (index >= totalSegments) {
       outputStream.end()
       task?.endTask?.(task.id)
+      
+      // 保存结果到缓存
+      if (segments.length > 0) {
+        const firstSegment = segments[0];
+        const cacheKey = taskManager.generateTaskId({ 
+          text: segment.text,
+          pitch: firstSegment.pitch,
+          voice: firstSegment.voice,
+          rate: firstSegment.rate,
+          volume: firstSegment.volume,
+          useLLM: false
+        });
+        
+        const fileName = path.basename(segment.id, '.mp3');
+        const result = {
+          text: segment.text,
+          pitch: firstSegment.pitch,
+          voice: firstSegment.voice,
+          rate: firstSegment.rate,
+          volume: firstSegment.volume,
+          useLLM: false,
+          audio: `${STATIC_DOMAIN}/${fileName}.mp3`,
+          srt: `${STATIC_DOMAIN}/${fileName}.srt`
+        };
+        
+        audioCacheInstance.setAudio(cacheKey, result)
+          .then(() => {
+            logger.info(`Successfully cached segment list result for ${firstSegment.voice} ${segment.text.slice(0, 10)}`);
+          })
+          .catch((error) => {
+            logger.error(`Failed to cache segment list result for ${firstSegment.voice} ${segment.text.slice(0, 10)}:`, error);
+          });
+      }
+      
       return
     }
 

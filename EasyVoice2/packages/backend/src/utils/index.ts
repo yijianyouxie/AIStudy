@@ -78,8 +78,12 @@ export async function asyncSleep(delay = 200) {
   return new Promise((resolve) => setTimeout(resolve, delay))
 }
 export function generateId(voice: string, text: string) {
-  const now = Date.now()
-  return `${voice}-${safeFileName(text).slice(0, 10)}-${now}.mp3`
+  // 使用MD5哈希算法基于语音和文本生成固定的ID，避免使用时间戳
+  const hash = require('crypto').createHash('md5');
+  hash.update(voice);
+  hash.update(text);
+  const hashedText = hash.digest('hex').substring(0, 10);
+  return `${voice}-${safeFileName(text).slice(0, 10)}-${hashedText}.mp3`;
 }
 export function safeFileName(fileName: string) {
   return fileName.replace(/[/\\?%*:|"<>\r\n\s#]/g, '-')
