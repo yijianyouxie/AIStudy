@@ -483,11 +483,11 @@ async function buildSegmentList(segments: BuildSegment[], task: Task): Promise<v
       return
     }
 
-    const segment = segments[index]
+    const currentSegment = segments[index]
     const generateWithRetry = async (attempt = 0): Promise<Readable> => {
       try {
         return (await generateSingleVoiceStream({
-          ...segment,
+          ...currentSegment,
           outputType: 'stream',
           output,
         })) as Readable
@@ -510,7 +510,7 @@ async function buildSegmentList(segments: BuildSegment[], task: Task): Promise<v
       await audioStream.pipe(outputStream, { end: false })
       await new Promise((resolve) => audioStream.on('end', resolve))
       completedSegments++
-      logger.info(`processing text:\n ${segment.text.slice(0, 10)}...`)
+      logger.info(`processing text:\n ${currentSegment.text.slice(0, 10)}...`)
       logger.info(`Segment ${index + 1}/${totalSegments} completed. Progress: ${progress()}%`)
       await processSegment(index + 1)
     } catch (err) {
