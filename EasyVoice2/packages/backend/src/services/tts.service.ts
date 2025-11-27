@@ -68,7 +68,12 @@ export async function generateTTS(params: Required<EdgeSchema>, task?: Task): Pr
   if (result.partial) {
     logger.warn(`Partial result detected, some splits generated audio failed!`)
   } else {
-    await audioCacheInstance.setAudio(cacheKey, { ...params, ...result })
+    // 将完整的参数和结果存储到缓存中，确保能正确还原所有信息
+    await audioCacheInstance.setAudio(cacheKey, {
+      ...params,
+      audio: result.audio,
+      srt: result.srt
+    })
   }
   return result
 }
@@ -202,9 +207,11 @@ async function buildSegment(
   setTimeout(() => {
     handleSrt(output, false)
   }, 200)
+  
+  // 修复：正确构造 TTSResult 对象，避免不必要的解构和类型断言
   return {
-    audio: `${STATIC_DOMAIN}/${path.join(dir, id)}`,
-    srt: `${STATIC_DOMAIN}/${path.join(dir, id.replace('.mp3', '.srt'))}`,
+    audio: path.join(dir, id),
+    srt: path.join(dir, id.replace('.mp3', '.srt')),
   }
 }
 
@@ -268,9 +275,8 @@ async function buildSegmentList(
   )
 
   return {
-    audio: `${STATIC_DOMAIN}/${id}`,
-    srt: `${STATIC_DOMAIN}/${id.replace('.mp3', '.srt')}`,
-    partial,
+    audio: id,
+    srt: id.replace('.mp3', '.srt'),
   }
 }
 

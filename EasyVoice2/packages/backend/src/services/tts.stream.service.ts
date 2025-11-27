@@ -65,54 +65,16 @@ export async function generateTTSStream(params: Required<EdgeSchema>, task: Task
       logger.info(`STATIC_DOMAIN: ${STATIC_DOMAIN}`)
       logger.info(`AUDIO_DIR: ${AUDIO_DIR}`)
       
-      // 如果是完整的URL（包含协议），提取路径部分
-      if (fullPath.startsWith('http://') || fullPath.startsWith('https://')) {
-        try {
-          const url = new URL(fullPath);
-          const pathname = url.pathname;
-          logger.info(`Extracted pathname from URL: ${pathname}`)
-          
-          // 移除开头的斜杠（如果有的话）
-          const cleanPath = pathname.startsWith('/') ? pathname.substring(1) : pathname;
-          logger.info(`Cleaned path: ${cleanPath}`)
-          
-          // 对路径进行解码，处理URL编码的字符
-          const decodedPath = decodeURIComponent(cleanPath);
-          logger.info(`Decoded path: ${decodedPath}`)
-          
-          // 构建完整路径
-          fullPath = path.resolve(AUDIO_DIR, decodedPath);
-          logger.info(`Constructed full path from URL: ${fullPath}`)
-        } catch (urlError) {
-          logger.error('Error parsing URL, falling back to basename extraction', urlError);
-          // 如果URL解析失败，直接提取文件名
-          const fileName = path.basename(fullPath);
-          logger.info(`Extracted filename as fallback: ${fileName}`);
-          // 对文件名进行解码
-          const decodedFileName = decodeURIComponent(fileName);
-          logger.info(`Decoded filename: ${decodedFileName}`);
-          fullPath = path.resolve(AUDIO_DIR, decodedFileName);
-          logger.info(`Constructed full path from filename: ${fullPath}`)
-        }
-      }
-      // 如果是相对路径，转换为绝对路径
-      else if (!path.isAbsolute(fullPath)) {
-        logger.info(`Converting relative path to absolute`)
-        // 对路径进行解码
-        const decodedPath = decodeURIComponent(fullPath);
-        logger.info(`Decoded relative path: ${decodedPath}`)
-        fullPath = path.resolve(AUDIO_DIR, decodedPath);
-        logger.info(`Converted full path: ${fullPath}`)
-      } else {
-        // fullPath已经是绝对路径，但仍需要解码
-        logger.info(`Using absolute path, decoding if needed`)
-        const decodedPath = decodeURIComponent(fullPath);
-        logger.info(`Decoded absolute path: ${decodedPath}`)
-        fullPath = decodedPath;
-        logger.info(`Using absolute path as-is: ${fullPath}`)
+      // 确保我们总是使用相对于AUDIO_DIR的路径
+      // 移除可能存在的前导斜杠
+      if (fullPath.startsWith('/')) {
+        fullPath = fullPath.substring(1);
+        logger.info(`Removed leading slash: ${fullPath}`)
       }
       
-      logger.info(`Final resolved file path: ${fullPath}`)
+      // 构建完整路径
+      fullPath = path.resolve(AUDIO_DIR, fullPath);
+      logger.info(`Resolved file path: ${fullPath}`)
       
       // 检查文件是否存在
       try {
@@ -130,12 +92,12 @@ export async function generateTTSStream(params: Required<EdgeSchema>, task: Task
       const fileStream = createReadStream(fullPath)
       
       // 设置响应头
-      task.context?.res?.setHeader('Content-Type', 'audio/mpeg')
-      task.context?.res?.setHeader('x-generate-tts-type', 'stream-cache')
-      task.context?.res?.setHeader('Access-Control-Expose-Headers', 'x-generate-tts-type, x-generate-tts-id')
+      res.setHeader('Content-Type', 'audio/mpeg')
+      res.setHeader('x-generate-tts-type', 'stream-cache')
+      res.setHeader('Access-Control-Expose-Headers', 'x-generate-tts-type, x-generate-tts-id')
       
       // 管道传输文件流到响应对象
-      fileStream.pipe(task.context?.res as Response)
+      fileStream.pipe(res)
       
       // 监听流完成事件
       fileStream.on('end', () => {
@@ -147,8 +109,8 @@ export async function generateTTSStream(params: Required<EdgeSchema>, task: Task
       fileStream.on('error', (err: NodeJS.ErrnoException) => {
         logger.error('Error streaming cached audio:', err)
         logger.error('Error stack:', err.stack)
-        if (!task.context?.res?.headersSent) {
-          task.context?.res?.status(500).json({ 
+        if (!res.headersSent) {
+          res.status(500).json({ 
             success: false, 
             message: 'Error streaming cached audio',
             error: err.message,
