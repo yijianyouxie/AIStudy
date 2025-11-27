@@ -236,3 +236,34 @@ pnpm dev
 ## 此工程在本地开发运行命令：pnpm dev
 ## 需要发布到服务器（linux）时才需要运行pnpm build 和pnpm start命令（这一步还有待验证）。
 ## 目前存在的问题：1，相同的请求缓存判定有问题；2，unity中边下载边播放的时候一卡一卡的。
+## 2025-11-27;node.js的版本需要v20+,目前安装了v20.19.6直接就解决了问题：
+root@iZ2zej9pzs8ovyjtkk5fvdZ:~/AIStudy/EasyVoice2# pnpm start
+
+> easy-voice@0.0.15 start /root/AIStudy/EasyVoice2
+> cross-env MODE=production pnpm --filter @easy-voice/backend start
+
+
+> @easy-voice/backend@0.0.15 start /root/AIStudy/EasyVoice2/packages/backend
+> node dist/server.js
+
+info: init AudioCacheService with {"storageOptions":{"cacheDir":"/root/AIStudy/EasyVoice2/packages/backend/audio/.cache"},"storageType":"file","timestamp":"2025-11-26T09:48:27.479Z","ttl":31536000000}
+Server running on port 3000
+info: validateEdge {"format":"mp3","pitch":"+0Hz","rate":"+0%","text":"大战扶风郡将于5分钟后开始，请各位侠士前往洛阳步凡处报名参与。","timestamp":"2025-11-26T09:49:41.303Z","useLLM":false,"voice":"zh-CN-XiaoxiaoNeural","volume":"+0%"}
+info: Generated stream task ID: taska89d150640d7482b03ee9173a4b91c88 {"timestamp":"2025-11-26T09:49:41.306Z"}
+node:internal/process/promises:288
+            triggerUncaughtException(err, true /* fromPromise */);
+            ^
+
+Error [ERR_REQUIRE_ESM]: require() of ES Module /root/AIStudy/EasyVoice2/node_modules/.pnpm/franc@6.2.0/node_modules/franc/index.js from /root/AIStudy/EasyVoice2/packages/backend/dist/utils/index.js not supported.
+Instead change the require of /root/AIStudy/EasyVoice2/node_modules/.pnpm/franc@6.2.0/node_modules/franc/index.js in /root/AIStudy/EasyVoice2/packages/backend/dist/utils/index.js to a dynamic import() which is available in all CommonJS modules.
+    at /root/AIStudy/EasyVoice2/packages/backend/dist/utils/index.js:58:71
+    at async getLangConfig (/root/AIStudy/EasyVoice2/packages/backend/dist/utils/index.js:58:23)
+    at async generateTTSStream (/root/AIStudy/EasyVoice2/packages/backend/dist/services/tts.stream.service.js:78:33) {
+  code: 'ERR_REQUIRE_ESM'
+}
+
+Node.js v18.20.8
+/root/AIStudy/EasyVoice2/packages/backend:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @easy-voice/backend@0.0.15 start: `node dist/server.js`
+Exit status 1
+ ELIFECYCLE  Command failed with exit code 1.
