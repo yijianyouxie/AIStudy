@@ -267,3 +267,4 @@ Node.js v18.20.8
  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @easy-voice/backend@0.0.15 start: `node dist/server.js`
 Exit status 1
  ELIFECYCLE  Command failed with exit code 1.
+## 目前还有【这个函数里，我觉得存在这样的问题，代码逻辑中在初始有了10k的数据后，每获得一定量的数据后就会重新读取声音文件。我感觉应该添加判断，只要当前播放的语音文件的缓存足够就不用重新播放有了新数据的声音文件，只有当前播放的语音文件不太够了才去播放。】，但是策划方面对这个功能不感冒，暂时搁置。
